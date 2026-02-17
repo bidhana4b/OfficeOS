@@ -1,0 +1,568 @@
+import type {
+  PackageTemplate,
+  PackageAssignment,
+  TeamSuggestion,
+  PackageWorkload,
+  UsageDeductionEvent,
+  DeliverableConfig,
+} from './types';
+
+// ===== DELIVERABLE PRESETS =====
+const makeDeliverable = (
+  type: DeliverableConfig['type'],
+  label: string,
+  icon: string,
+  total: number,
+  used: number,
+  unitLabel: string,
+  warningThreshold = 20,
+  autoDeduction = true
+): DeliverableConfig => ({
+  type,
+  label,
+  icon,
+  totalAllocated: total,
+  used,
+  remaining: total - used,
+  warningThreshold,
+  autoDeduction,
+  unitLabel,
+});
+
+// ===== PACKAGE TEMPLATES =====
+export const packageTemplates: PackageTemplate[] = [
+  // ====== INFINITY PLAN — STARTER ======
+  {
+    id: 'pkg-infinity-starter',
+    name: 'Infinity Starter',
+    planType: 'Infinity Plan',
+    category: null,
+    tier: 'Starter',
+    monthlyFee: 15000,
+    currency: 'BDT',
+    platformCount: 2,
+    correctionLimit: 2,
+    description: 'Perfect for small businesses starting their digital journey',
+    features: [
+      '2 Social Media Platforms',
+      'Basic Design Package',
+      'Monthly Content Calendar',
+      'Basic Analytics Report',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 8, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 2, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 1, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 2, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 10, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 8, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 4, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 1, 0, 'campaigns'),
+    ],
+  },
+  // ====== INFINITY PLAN — GROWTH ======
+  {
+    id: 'pkg-infinity-growth',
+    name: 'Infinity Growth',
+    planType: 'Infinity Plan',
+    category: null,
+    tier: 'Growth',
+    monthlyFee: 35000,
+    currency: 'BDT',
+    platformCount: 4,
+    correctionLimit: 4,
+    recommended: true,
+    description: 'Ideal for growing businesses with an active social presence',
+    features: [
+      '4 Social Media Platforms',
+      'Advanced Design Package',
+      'Weekly Content Calendar',
+      'Detailed Analytics Report',
+      'Ads Management (Basic)',
+      'Monthly Strategy Call',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 12, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 4, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 2, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 4, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 20, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 15, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 8, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 3, 0, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 2, 0, 'platforms'),
+    ],
+  },
+  // ====== INFINITY PLAN — ADVANCED ======
+  {
+    id: 'pkg-infinity-advanced',
+    name: 'Infinity Advanced',
+    planType: 'Infinity Plan',
+    category: null,
+    tier: 'Advanced',
+    monthlyFee: 65000,
+    currency: 'BDT',
+    platformCount: 6,
+    correctionLimit: 8,
+    description: 'Full-suite marketing for businesses serious about growth',
+    features: [
+      '6 Social Media Platforms',
+      'Premium Design Package',
+      'Daily Content Calendar',
+      'Real-time Analytics Dashboard',
+      'Full Ads Management',
+      'Influencer Marketing (1 campaign)',
+      'Bi-weekly Strategy Calls',
+      'Priority Support',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 20, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 8, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 4, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 8, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 30, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 25, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 15, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 5, 0, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 4, 0, 'platforms'),
+      makeDeliverable('influencer_marketing', 'Influencer Marketing', 'star', 1, 0, 'campaigns'),
+    ],
+  },
+  // ====== ECO LITE — STARTER ======
+  {
+    id: 'pkg-ecolite-starter',
+    name: 'Eco Lite Starter',
+    planType: 'Eco Lite',
+    category: null,
+    tier: 'Starter',
+    monthlyFee: 8000,
+    currency: 'BDT',
+    platformCount: 1,
+    correctionLimit: 1,
+    description: 'Budget-friendly option for micro businesses',
+    features: [
+      '1 Social Media Platform',
+      'Basic Graphics',
+      'Weekly Posts',
+      'Basic Report',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 4, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 1, 0, 'videos'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 1, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 8, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 4, 0, 'frames'),
+    ],
+  },
+  // ====== ECO LITE — GROWTH ======
+  {
+    id: 'pkg-ecolite-growth',
+    name: 'Eco Lite Growth',
+    planType: 'Eco Lite',
+    category: null,
+    tier: 'Growth',
+    monthlyFee: 18000,
+    currency: 'BDT',
+    platformCount: 2,
+    correctionLimit: 2,
+    description: 'Affordable growth plan for budget-conscious businesses',
+    features: [
+      '2 Social Media Platforms',
+      'Standard Graphics',
+      'Content Calendar',
+      'Monthly Analytics',
+      'Basic Boost Support',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 6, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 2, 0, 'videos'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 2, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 12, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 8, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 4, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 1, 0, 'campaigns'),
+    ],
+  },
+  // ====== CATEGORY-BASED: MOTORCYCLE DEALER ======
+  {
+    id: 'pkg-moto-starter',
+    name: 'Moto Dealer Starter',
+    planType: 'Category-Based',
+    category: 'Motorcycle Dealer',
+    tier: 'Starter',
+    monthlyFee: 25000,
+    currency: 'BDT',
+    platformCount: 3,
+    correctionLimit: 3,
+    description: 'Starter package tailored for motorcycle dealerships',
+    features: [
+      '3 Platforms (Facebook, Instagram, YouTube)',
+      'Showroom Photography',
+      'Customer Delivery Frames',
+      'Service Reminder Frames',
+      'Basic Boost Campaigns',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 10, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 3, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 1, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 3, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 15, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 15, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 8, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 2, 0, 'campaigns'),
+    ],
+  },
+  // ====== CATEGORY-BASED: MOTORCYCLE DEALER — ROYAL DOMINANCE ======
+  {
+    id: 'pkg-moto-advanced',
+    name: 'Royal Dominance Package',
+    planType: 'Category-Based',
+    category: 'Motorcycle Dealer',
+    tier: 'Advanced',
+    monthlyFee: 85000,
+    currency: 'BDT',
+    platformCount: 6,
+    correctionLimit: 10,
+    recommended: true,
+    description: 'Premium motorcycle dealer package with full marketing dominance',
+    features: [
+      '6 Platforms (All Major)',
+      'Professional Showroom Photography',
+      'Customer Delivery Frames',
+      'Review Videos',
+      'Full Ads Management',
+      'Influencer Collaboration',
+      'Test Ride Campaign',
+      'Weekly Strategy Calls',
+      'Dedicated Account Manager',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 20, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 8, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 4, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 8, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 30, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 25, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 15, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 5, 0, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 6, 0, 'platforms'),
+      makeDeliverable('influencer_marketing', 'Influencer Marketing', 'star', 2, 0, 'campaigns'),
+    ],
+  },
+  // ====== CATEGORY-BASED: RESTAURANT ======
+  {
+    id: 'pkg-restaurant-growth',
+    name: 'Restaurant Growth',
+    planType: 'Category-Based',
+    category: 'Restaurant',
+    tier: 'Growth',
+    monthlyFee: 30000,
+    currency: 'BDT',
+    platformCount: 3,
+    correctionLimit: 4,
+    description: 'Designed for restaurants to build foodie community and drive orders',
+    features: [
+      '3 Platforms (Facebook, Instagram, Google)',
+      'Food Photography & Styling',
+      'Menu Design Updates',
+      'Food Reels & Short Videos',
+      'Review Management',
+      'Delivery Platform Integration',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 12, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 4, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 2, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 6, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 18, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 10, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 3, 0, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 2, 0, 'platforms'),
+    ],
+  },
+  // ====== CATEGORY-BASED: CORPORATE ======
+  {
+    id: 'pkg-corporate-premium',
+    name: 'Corporate Premium',
+    planType: 'Category-Based',
+    category: 'Corporate',
+    tier: 'Premium',
+    monthlyFee: 120000,
+    currency: 'BDT',
+    platformCount: 8,
+    correctionLimit: 12,
+    description: 'Enterprise-grade marketing for corporate clients',
+    features: [
+      '8 Platforms (All + LinkedIn)',
+      'Corporate Brand Design',
+      'Executive Video Content',
+      'Full Campaign Management',
+      'LinkedIn Thought Leadership',
+      'PR & Media Outreach',
+      'Quarterly Brand Audit',
+      'Dedicated Team of 8+',
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 30, 0, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 12, 0, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 6, 0, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 10, 0, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 40, 0, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 20, 0, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 12, 0, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 6, 0, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 8, 0, 'platforms'),
+      makeDeliverable('influencer_marketing', 'Influencer Marketing', 'star', 3, 0, 'campaigns'),
+      makeDeliverable('seo', 'SEO', 'search', 1, 0, 'audits'),
+    ],
+  },
+];
+
+// ===== ACTIVE PACKAGE ASSIGNMENTS =====
+export const packageAssignments: PackageAssignment[] = [
+  {
+    id: 'assign-1',
+    packageTemplateId: 'pkg-moto-advanced',
+    clientId: 'client-1',
+    clientName: 'Imperial Motors',
+    startDate: '2024-01-01',
+    renewalDate: '2024-12-31',
+    status: 'active',
+    assignedTeamMembers: [
+      { role: 'Designer', memberId: 'mem-001', memberName: 'Arif Hassan', memberAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&q=80', currentLoad: 92, recommended: true },
+      { role: 'Video Editor', memberId: 'mem-009', memberName: 'Kamal Uddin', memberAvatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&q=80', currentLoad: 85, recommended: true },
+      { role: 'Media Buyer', memberId: 'mem-015', memberName: 'Rafiq Ahmed', memberAvatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=100&q=80', currentLoad: 95, recommended: true },
+      { role: 'Account Manager', memberId: 'mem-027', memberName: 'Zarif Hossain', memberAvatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&q=80', currentLoad: 82, recommended: true },
+      { role: 'Copywriter', memberId: 'mem-020', memberName: 'Israt Jahan', memberAvatar: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=100&q=80', currentLoad: 80, recommended: true },
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 20, 14, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 8, 5, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 4, 2, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 8, 6, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 30, 22, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 25, 18, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 15, 11, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 5, 3, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 6, 6, 'platforms'),
+      makeDeliverable('influencer_marketing', 'Influencer Marketing', 'star', 2, 1, 'campaigns'),
+    ],
+  },
+  {
+    id: 'assign-2',
+    packageTemplateId: 'pkg-infinity-growth',
+    clientId: 'client-2',
+    clientName: 'Spice Paradise Restaurant',
+    startDate: '2024-03-15',
+    renewalDate: '2025-03-14',
+    status: 'active',
+    assignedTeamMembers: [
+      { role: 'Designer', memberId: 'mem-003', memberName: 'Tanvir Ahmed', memberAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&q=80', currentLoad: 65, recommended: true },
+      { role: 'Video Editor', memberId: 'mem-011', memberName: 'Shakil Hossain', memberAvatar: 'https://images.unsplash.com/photo-1463453091185-61582044d556?w=100&q=80', currentLoad: 60, recommended: true },
+      { role: 'Media Buyer', memberId: 'mem-016', memberName: 'Laboni Akter', memberAvatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&q=80', currentLoad: 88, recommended: false },
+      { role: 'Copywriter', memberId: 'mem-021', memberName: 'Rasel Mia', memberAvatar: 'https://images.unsplash.com/photo-1504257432389-52343af06ae3?w=100&q=80', currentLoad: 72, recommended: true },
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 12, 8, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 4, 2, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 2, 1, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 4, 3, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 20, 14, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 15, 9, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 8, 5, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 3, 2, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 2, 2, 'platforms'),
+    ],
+  },
+  {
+    id: 'assign-3',
+    packageTemplateId: 'pkg-ecolite-growth',
+    clientId: 'client-3',
+    clientName: 'TechCorp Solutions',
+    startDate: '2024-05-01',
+    renewalDate: '2024-11-01',
+    status: 'active',
+    assignedTeamMembers: [
+      { role: 'Designer', memberId: 'mem-004', memberName: 'Nusrat Jahan', memberAvatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&q=80', currentLoad: 55, recommended: true },
+      { role: 'Copywriter', memberId: 'mem-023', memberName: 'Ashik Rahman', memberAvatar: 'https://images.unsplash.com/photo-1537511446984-935f663eb1f4?w=100&q=80', currentLoad: 55, recommended: true },
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 6, 5, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 2, 2, 'videos'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 2, 1, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 12, 10, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 8, 7, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 4, 3, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 1, 1, 'campaigns'),
+    ],
+  },
+  {
+    id: 'assign-4',
+    packageTemplateId: 'pkg-moto-advanced',
+    clientId: 'client-4',
+    clientName: 'Velocity Bikes Showroom',
+    startDate: '2024-02-01',
+    renewalDate: '2025-01-31',
+    status: 'active',
+    assignedTeamMembers: [
+      { role: 'Designer', memberId: 'mem-005', memberName: 'Mehedi Hasan', memberAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&q=80', currentLoad: 88, recommended: true },
+      { role: 'Video Editor', memberId: 'mem-009', memberName: 'Kamal Uddin', memberAvatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&q=80', currentLoad: 85, recommended: true },
+      { role: 'Media Buyer', memberId: 'mem-017', memberName: 'Faisal Mahmud', memberAvatar: 'https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=100&q=80', currentLoad: 82, recommended: true },
+      { role: 'Account Manager', memberId: 'mem-029', memberName: 'Anik Roy', memberAvatar: 'https://images.unsplash.com/photo-1548544149-4835e62ee5b3?w=100&q=80', currentLoad: 68, recommended: true },
+      { role: 'Copywriter', memberId: 'mem-022', memberName: 'Mithila Rani', memberAvatar: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=100&q=80', currentLoad: 68, recommended: true },
+    ],
+    deliverables: [
+      makeDeliverable('photo_graphics', 'Photo/Graphics Design', 'image', 20, 16, 'designs'),
+      makeDeliverable('video_edit', 'Video Edit', 'video', 8, 7, 'videos'),
+      makeDeliverable('motion_graphics', 'Motion Graphics', 'sparkles', 4, 3, 'animations'),
+      makeDeliverable('reels', 'Reels', 'clapperboard', 8, 7, 'reels'),
+      makeDeliverable('copywriting', 'Copywriting', 'pen-tool', 30, 24, 'copies'),
+      makeDeliverable('customer_frames', 'Customer Frames', 'frame', 25, 22, 'frames'),
+      makeDeliverable('service_frames', 'Service Frames', 'layout', 15, 13, 'frames'),
+      makeDeliverable('boost_campaign', 'Boost Campaign', 'rocket', 5, 4, 'campaigns'),
+      makeDeliverable('ads_management', 'Ads Management', 'megaphone', 6, 5, 'platforms'),
+      makeDeliverable('influencer_marketing', 'Influencer Marketing', 'star', 2, 2, 'campaigns'),
+    ],
+  },
+];
+
+// ===== USAGE DEDUCTION EVENTS =====
+export const recentDeductions: UsageDeductionEvent[] = [
+  {
+    id: 'ded-1',
+    packageAssignmentId: 'assign-1',
+    deliverableType: 'reels',
+    deliverableName: 'Royal Enfield Meteor 350 — Customer Story Reel',
+    quantity: 1,
+    timestamp: '2024-01-15T14:30:00Z',
+    confirmedBy: 'Arif Hassan',
+    status: 'confirmed',
+  },
+  {
+    id: 'ded-2',
+    packageAssignmentId: 'assign-1',
+    deliverableType: 'customer_frames',
+    deliverableName: 'Customer Delivery — Mr. Rahman',
+    quantity: 1,
+    timestamp: '2024-01-15T11:00:00Z',
+    confirmedBy: 'Tanvir Ahmed',
+    status: 'confirmed',
+  },
+  {
+    id: 'ded-3',
+    packageAssignmentId: 'assign-2',
+    deliverableType: 'photo_graphics',
+    deliverableName: 'Weekend Special Menu Poster',
+    quantity: 1,
+    timestamp: '2024-01-14T16:20:00Z',
+    confirmedBy: 'Nusrat Jahan',
+    status: 'confirmed',
+  },
+  {
+    id: 'ded-4',
+    packageAssignmentId: 'assign-4',
+    deliverableType: 'video_edit',
+    deliverableName: 'Bike Comparison: Yamaha R15 vs Honda CB',
+    quantity: 1,
+    timestamp: '2024-01-14T10:45:00Z',
+    confirmedBy: 'Kamal Uddin',
+    status: 'pending',
+  },
+  {
+    id: 'ded-5',
+    packageAssignmentId: 'assign-3',
+    deliverableType: 'copywriting',
+    deliverableName: 'LinkedIn Post: Tech Innovation Series',
+    quantity: 1,
+    timestamp: '2024-01-13T09:15:00Z',
+    confirmedBy: 'Ashik Rahman',
+    status: 'confirmed',
+  },
+];
+
+// ===== WORKLOAD CALCULATIONS =====
+const hoursPerUnit: Record<string, number> = {
+  photo_graphics: 1.5,
+  video_edit: 4,
+  motion_graphics: 6,
+  reels: 3,
+  copywriting: 0.5,
+  customer_frames: 0.75,
+  service_frames: 0.75,
+  boost_campaign: 4,
+  ads_management: 8,
+  influencer_marketing: 12,
+  seo: 10,
+  social_media_posts: 0.5,
+};
+
+export function calculateWorkload(assignment: PackageAssignment): PackageWorkload {
+  const breakdown = assignment.deliverables.map((d) => ({
+    category: d.label,
+    deliverableType: d.type,
+    quantity: d.totalAllocated,
+    hoursPerUnit: hoursPerUnit[d.type] || 1,
+    totalHours: d.totalAllocated * (hoursPerUnit[d.type] || 1),
+  }));
+
+  const totalUnits = assignment.deliverables.reduce((sum, d) => sum + d.totalAllocated, 0);
+  const totalHours = breakdown.reduce((sum, b) => sum + b.totalHours, 0);
+
+  return {
+    packageId: assignment.id,
+    packageName: assignment.clientName,
+    totalCreativeUnits: totalUnits,
+    totalHoursRequired: totalHours,
+    workloadBreakdown: breakdown,
+    teamCapacityRequired: totalHours,
+    teamUtilization: Math.min(100, Math.round((totalHours / (assignment.assignedTeamMembers.length * 160)) * 100)),
+  };
+}
+
+// ===== TEAM SUGGESTION ENGINE =====
+export function getTeamSuggestionsForPackage(tier: string): TeamSuggestion[] {
+  const suggestions: Record<string, TeamSuggestion[]> = {
+    Starter: [
+      { role: 'Designer', memberId: 'mem-008', memberName: 'Priya Das', memberAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&q=80', currentLoad: 40, recommended: true },
+      { role: 'Copywriter', memberId: 'mem-024', memberName: 'Rima Begum', memberAvatar: 'https://images.unsplash.com/photo-1499952127939-9bbf5af6c51c?w=100&q=80', currentLoad: 42, recommended: true },
+    ],
+    Growth: [
+      { role: 'Designer', memberId: 'mem-003', memberName: 'Tanvir Ahmed', memberAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&q=80', currentLoad: 65, recommended: true },
+      { role: 'Video Editor', memberId: 'mem-011', memberName: 'Shakil Hossain', memberAvatar: 'https://images.unsplash.com/photo-1463453091185-61582044d556?w=100&q=80', currentLoad: 60, recommended: true },
+      { role: 'Media Buyer', memberId: 'mem-018', memberName: 'Sabrina Chowdhury', memberAvatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&q=80', currentLoad: 60, recommended: true },
+      { role: 'Copywriter', memberId: 'mem-021', memberName: 'Rasel Mia', memberAvatar: 'https://images.unsplash.com/photo-1504257432389-52343af06ae3?w=100&q=80', currentLoad: 72, recommended: true },
+    ],
+    Advanced: [
+      { role: 'Designer', memberId: 'mem-001', memberName: 'Arif Hassan', memberAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&q=80', currentLoad: 92, recommended: true },
+      { role: 'Video Editor', memberId: 'mem-009', memberName: 'Kamal Uddin', memberAvatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&q=80', currentLoad: 85, recommended: true },
+      { role: 'Media Buyer', memberId: 'mem-015', memberName: 'Rafiq Ahmed', memberAvatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=100&q=80', currentLoad: 95, recommended: true },
+      { role: 'Account Manager', memberId: 'mem-027', memberName: 'Zarif Hossain', memberAvatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&q=80', currentLoad: 82, recommended: true },
+      { role: 'Copywriter', memberId: 'mem-020', memberName: 'Israt Jahan', memberAvatar: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=100&q=80', currentLoad: 80, recommended: true },
+    ],
+    Premium: [
+      { role: 'Creative Director', memberId: 'mem-049', memberName: 'Jarin Tasnim', memberAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&q=80', currentLoad: 92, recommended: true },
+      { role: 'Senior Designer', memberId: 'mem-005', memberName: 'Mehedi Hasan', memberAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&q=80', currentLoad: 88, recommended: true },
+      { role: 'Lead Video Editor', memberId: 'mem-009', memberName: 'Kamal Uddin', memberAvatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&q=80', currentLoad: 85, recommended: true },
+      { role: 'Motion Graphics', memberId: 'mem-010', memberName: 'Nadia Sultana', memberAvatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&q=80', currentLoad: 70, recommended: true },
+      { role: 'Head Media Buyer', memberId: 'mem-015', memberName: 'Rafiq Ahmed', memberAvatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=100&q=80', currentLoad: 95, recommended: true },
+      { role: 'Head of Content', memberId: 'mem-020', memberName: 'Israt Jahan', memberAvatar: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=100&q=80', currentLoad: 80, recommended: true },
+      { role: 'Account Manager', memberId: 'mem-027', memberName: 'Zarif Hossain', memberAvatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&q=80', currentLoad: 82, recommended: true },
+      { role: 'Growth Lead', memberId: 'mem-050', memberName: 'Tarek Aziz', memberAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&q=80', currentLoad: 86, recommended: true },
+    ],
+  };
+  return suggestions[tier] || suggestions.Growth;
+}
+
+// Helper
+export function getTemplateById(id: string): PackageTemplate | undefined {
+  return packageTemplates.find((p) => p.id === id);
+}
+
+export function getAssignmentsByClient(clientId: string): PackageAssignment[] {
+  return packageAssignments.filter((a) => a.clientId === clientId);
+}
+
+export function getTemplatesByPlanType(planType: string): PackageTemplate[] {
+  return packageTemplates.filter((p) => p.planType === planType);
+}

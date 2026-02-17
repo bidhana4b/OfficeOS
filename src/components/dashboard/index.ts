@@ -1,0 +1,11 @@
+export { default as Dashboard } from './Dashboard';
+export { default as SidebarNav } from './SidebarNav';
+export { default as TopCommandBar } from './TopCommandBar';
+export { default as HeroMetrics } from './HeroMetrics';
+export { default as ActivityFeed } from './ActivityFeed';
+export { default as QuickActions } from './QuickActions';
+export { default as AIInsightsWidget } from './AIInsightsWidget';
+export { default as ProjectsKanban } from './ProjectsKanban';
+export { default as FinancialPulseChart } from './FinancialPulseChart';
+export { default as CommandPalette } from './CommandPalette';
+export { default as AIAssistant } from './AIAssistant';
