@@ -33,6 +33,7 @@ export function useWorkspaces() {
 
         return {
           id: r.id as string,
+          clientId: (r.client_id as string) || undefined,
           clientName: r.client_name as string,
           clientLogo: r.client_logo as string | undefined,
           lastMessage: (r.last_message as string) || '',

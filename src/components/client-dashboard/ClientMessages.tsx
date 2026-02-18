@@ -1,5 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/lib/auth';
+import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { sendMessage as sendMessageToDb, subscribeToMessages } from '@/lib/data-service';
 import {
   MessageCircle,
   Send,
@@ -12,6 +15,7 @@ import {
   Clock,
   Smile,
   Tag,
+  Loader2,
 } from 'lucide-react';
 
 interface Message {
@@ -37,7 +41,7 @@ interface ChatChannel {
   isTyping: boolean;
 }
 
-const mockChannels: ChatChannel[] = [
+const fallbackChannels: ChatChannel[] = [
   {
     id: '1',
     name: 'Creative Team',
@@ -76,7 +80,7 @@ const mockChannels: ChatChannel[] = [
   },
 ];
 
-const mockMessages: Message[] = [
+const fallbackMessages: Message[] = [
   {
     id: '1',
     text: 'Hi! The New Year sale banner design is complete.',
@@ -141,6 +145,16 @@ const mockMessages: Message[] = [
   },
 ];
 
+// Map channel type to emoji
+const channelEmoji: Record<string, string> = {
+  general: '💬',
+  deliverables: '📦',
+  'boost-requests': '🚀',
+  billing: '💳',
+  internal: '🔒',
+  custom: '🏷️',
+};
+
 function StatusIcon({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck className="w-3 h-3 text-titan-cyan" />;
   if (status === 'delivered') return <CheckCheck className="w-3 h-3 text-white/30" />;
@@ -148,10 +162,133 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 export default function ClientMessages() {
+  const { user } = useAuth();
+  const [channels, setChannels] = useState<ChatChannel[]>(fallbackChannels);
   const [activeChannel, setActiveChannel] = useState<ChatChannel | null>(null);
+  const [activeChannelDbId, setActiveChannelDbId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState(mockMessages);
+  const [messages, setMessages] = useState<Message[]>(fallbackMessages);
+  const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Fetch workspace channels for this client
+  const fetchChannels = useCallback(async () => {
+    try {
+      const clientId = user?.client_id;
+      if (!clientId) { setLoading(false); return; }
+
+      // Find workspace for this client
+      const { data: workspace } = await supabase
+        .from('workspaces')
+        .select('id, channels(*)')
+        .eq('client_id', clientId)
+        .single();
+
+      if (workspace) {
+        const chs = (workspace.channels as Record<string, unknown>[]) || [];
+        if (chs.length > 0) {
+          const mapped: ChatChannel[] = chs
+            .filter((ch) => !(ch.is_hidden as boolean))
+            .map((ch) => {
+              const lastMsgTime = ch.last_message_time ? new Date(ch.last_message_time as string) : null;
+              let timeAgo = '';
+              if (lastMsgTime) {
+                const diffMs = Date.now() - lastMsgTime.getTime();
+                const diffMins = Math.floor(diffMs / 60000);
+                if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+                else {
+                  const hrs = Math.floor(diffMins / 60);
+                  timeAgo = hrs >= 24 ? `${Math.floor(hrs / 24)}d ago` : `${hrs}h ago`;
+                }
+              }
+              return {
+                id: ch.id as string,
+                name: (ch.name as string) || 'General',
+                avatar: channelEmoji[(ch.type as string) || 'general'] || '💬',
+                lastMessage: (ch.last_message as string) || '',
+                timestamp: timeAgo,
+                unread: (ch.unread_count as number) || 0,
+                isTyping: false,
+              };
+            });
+          setChannels(mapped);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch channels:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.client_id]);
+
+  useEffect(() => { fetchChannels(); }, [fetchChannels]);
+
+  // Fetch messages when a channel is selected
+  const fetchMessages = useCallback(async (channelId: string) => {
+    try {
+      const { data: result, error: err } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('channel_id', channelId)
+        .order('created_at', { ascending: true });
+
+      if (err) throw err;
+
+      if (result && result.length > 0) {
+        const mapped: Message[] = result.map((r: Record<string, unknown>) => {
+          const isClient = (r.sender_role as string) === 'client' || (r.sender_id as string) === user?.id;
+          return {
+            id: r.id as string,
+            text: r.content as string,
+            sender: isClient ? 'client' : 'agency',
+            senderName: isClient ? 'You' : (r.sender_name as string) || 'Team',
+            senderAvatar: (r.sender_avatar as string) || ((r.sender_name as string) || 'T').substring(0, 2).toUpperCase(),
+            timestamp: new Date(r.created_at as string).toLocaleTimeString('en-US', {
+              hour: 'numeric', minute: '2-digit', hour12: true,
+            }),
+            status: (r.status as Message['status']) || 'sent',
+            type: (r.is_system_message as boolean) ? 'deliverable' : 'text',
+            deliverableTag: (r.is_system_message as boolean) ? (r.content as string).substring(0, 30) : undefined,
+          };
+        });
+        setMessages(mapped);
+      } else {
+        setMessages([]);
+      }
+    } catch (e) {
+      console.error('Failed to fetch messages:', e);
+    }
+  }, [user?.id]);
+
+  // Real-time subscription for messages
+  useEffect(() => {
+    if (!activeChannelDbId) return;
+
+    const unsubscribe = subscribeToMessages(activeChannelDbId, (payload) => {
+      if (payload.eventType === 'INSERT') {
+        const newMsg = payload.new;
+        const isClient = (newMsg.sender_role as string) === 'client' || (newMsg.sender_id as string) === user?.id;
+        const mapped: Message = {
+          id: newMsg.id as string,
+          text: newMsg.content as string,
+          sender: isClient ? 'client' : 'agency',
+          senderName: isClient ? 'You' : (newMsg.sender_name as string) || 'Team',
+          senderAvatar: (newMsg.sender_avatar as string) || 'T',
+          timestamp: new Date(newMsg.created_at as string).toLocaleTimeString('en-US', {
+            hour: 'numeric', minute: '2-digit', hour12: true,
+          }),
+          status: (newMsg.status as Message['status']) || 'sent',
+          type: 'text',
+        };
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === mapped.id)) return prev;
+          return [...prev, mapped];
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [activeChannelDbId, user?.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -159,21 +296,50 @@ export default function ClientMessages() {
     }
   }, [messages, activeChannel]);
 
-  const handleSend = () => {
-    if (!message.trim()) return;
+  const handleSelectChannel = useCallback((channel: ChatChannel) => {
+    setActiveChannel(channel);
+    setActiveChannelDbId(channel.id);
+    fetchMessages(channel.id);
+  }, [fetchMessages]);
+
+  const handleSend = useCallback(async () => {
+    if (!message.trim() || !activeChannelDbId) return;
+
+    const optimisticId = `msg-${Date.now()}`;
     const newMsg: Message = {
-      id: Date.now().toString(),
+      id: optimisticId,
       text: message,
       sender: 'client',
       senderName: 'You',
-      senderAvatar: 'IM',
+      senderAvatar: user?.display_name?.split(' ').map(n => n[0]).join('') || 'U',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       status: 'sent',
       type: 'text',
     };
     setMessages((prev) => [...prev, newMsg]);
     setMessage('');
-  };
+
+    try {
+      const result = await sendMessageToDb({
+        channel_id: activeChannelDbId,
+        sender_id: user?.id || 'client',
+        sender_name: user?.display_name || 'Client',
+        sender_avatar: user?.avatar || user?.display_name?.split(' ').map(n => n[0]).join('') || 'C',
+        sender_role: 'client',
+        content: message,
+      });
+
+      // Replace optimistic with real
+      setMessages((prev) => prev.map((m) =>
+        m.id === optimisticId ? { ...m, id: result.id, status: 'delivered' as const } : m
+      ));
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      setMessages((prev) => prev.map((m) =>
+        m.id === optimisticId ? { ...m, status: 'sent' as const } : m
+      ));
+    }
+  }, [message, activeChannelDbId, user]);
 
   // Channel List View
   if (!activeChannel) {
@@ -185,18 +351,18 @@ export default function ClientMessages() {
             Messages
           </h1>
           <p className="font-mono text-[10px] text-white/30 mt-0.5">
-            {mockChannels.filter((c) => c.unread > 0).length} unread conversations
+            {channels.filter((c) => c.unread > 0).length} unread conversations
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-4">
-          {mockChannels.map((channel, i) => (
+          {channels.map((channel, i) => (
             <motion.button
               key={channel.id}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.05 }}
-              onClick={() => setActiveChannel(channel)}
+              onClick={() => handleSelectChannel(channel)}
               className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/[0.03] active:scale-[0.98] transition-all mb-1"
             >
               <div className="w-11 h-11 rounded-full glass-card flex items-center justify-center text-lg shrink-0">

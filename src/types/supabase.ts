@@ -261,6 +261,57 @@ export type Database = {
           },
         ]
       }
+      canned_responses: {
+        Row: {
+          category: string | null
+          content: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          shortcut: string | null
+          tenant_id: string
+          title: string
+          usage_count: number | null
+        }
+        Insert: {
+          category?: string | null
+          content: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          shortcut?: string | null
+          tenant_id: string
+          title: string
+          usage_count?: number | null
+        }
+        Update: {
+          category?: string | null
+          content?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          shortcut?: string | null
+          tenant_id?: string
+          title?: string
+          usage_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canned_responses_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "system_health_summary"
+            referencedColumns: ["tenant_id"]
+          },
+          {
+            foreignKeyName: "canned_responses_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       change_log: {
         Row: {
           changed_by: string | null
@@ -309,39 +360,101 @@ export type Database = {
           },
         ]
       }
+      channel_members: {
+        Row: {
+          channel_id: string
+          id: string
+          is_muted: boolean | null
+          joined_at: string | null
+          notification_pref: string | null
+          user_avatar: string | null
+          user_id: string
+          user_name: string | null
+          user_role: string | null
+        }
+        Insert: {
+          channel_id: string
+          id?: string
+          is_muted?: boolean | null
+          joined_at?: string | null
+          notification_pref?: string | null
+          user_avatar?: string | null
+          user_id: string
+          user_name?: string | null
+          user_role?: string | null
+        }
+        Update: {
+          channel_id?: string
+          id?: string
+          is_muted?: boolean | null
+          joined_at?: string | null
+          notification_pref?: string | null
+          user_avatar?: string | null
+          user_id?: string
+          user_name?: string | null
+          user_role?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_members_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channels: {
         Row: {
           created_at: string | null
+          created_by: string | null
+          description: string | null
           icon: string | null
           id: string
+          is_archived: boolean | null
           is_hidden: boolean | null
+          is_muted: boolean | null
+          is_private: boolean | null
           last_message: string | null
           last_message_time: string | null
           name: string
+          pinned_message_ids: string[] | null
           type: string | null
           unread_count: number | null
           workspace_id: string
         }
         Insert: {
           created_at?: string | null
+          created_by?: string | null
+          description?: string | null
           icon?: string | null
           id?: string
+          is_archived?: boolean | null
           is_hidden?: boolean | null
+          is_muted?: boolean | null
+          is_private?: boolean | null
           last_message?: string | null
           last_message_time?: string | null
           name: string
+          pinned_message_ids?: string[] | null
           type?: string | null
           unread_count?: number | null
           workspace_id: string
         }
         Update: {
           created_at?: string | null
+          created_by?: string | null
+          description?: string | null
           icon?: string | null
           id?: string
+          is_archived?: boolean | null
           is_hidden?: boolean | null
+          is_muted?: boolean | null
+          is_private?: boolean | null
           last_message?: string | null
           last_message_time?: string | null
           name?: string
+          pinned_message_ids?: string[] | null
           type?: string | null
           unread_count?: number | null
           workspace_id?: string
@@ -1305,17 +1418,54 @@ export type Database = {
           },
         ]
       }
+      message_read_receipts: {
+        Row: {
+          id: string
+          message_id: string
+          read_at: string | null
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          message_id: string
+          read_at?: string | null
+          user_id: string
+        }
+        Update: {
+          id?: string
+          message_id?: string
+          read_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_read_receipts_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           boost_tag: Json | null
           channel_id: string
           content: string
           created_at: string | null
+          deleted_at: string | null
+          deleted_for_everyone: boolean | null
           deliverable_tag: Json | null
+          edited_at: string | null
+          forwarded_from_channel: string | null
+          forwarded_from_id: string | null
           id: string
+          is_deleted: boolean | null
           is_edited: boolean | null
           is_pinned: boolean | null
           is_system_message: boolean | null
+          message_type: string | null
+          original_content: string | null
           reply_to_content: string | null
           reply_to_id: string | null
           reply_to_sender: string | null
@@ -1325,17 +1475,27 @@ export type Database = {
           sender_role: string | null
           status: string | null
           thread_count: number | null
+          voice_duration: number | null
+          voice_url: string | null
         }
         Insert: {
           boost_tag?: Json | null
           channel_id: string
           content: string
           created_at?: string | null
+          deleted_at?: string | null
+          deleted_for_everyone?: boolean | null
           deliverable_tag?: Json | null
+          edited_at?: string | null
+          forwarded_from_channel?: string | null
+          forwarded_from_id?: string | null
           id?: string
+          is_deleted?: boolean | null
           is_edited?: boolean | null
           is_pinned?: boolean | null
           is_system_message?: boolean | null
+          message_type?: string | null
+          original_content?: string | null
           reply_to_content?: string | null
           reply_to_id?: string | null
           reply_to_sender?: string | null
@@ -1345,17 +1505,27 @@ export type Database = {
           sender_role?: string | null
           status?: string | null
           thread_count?: number | null
+          voice_duration?: number | null
+          voice_url?: string | null
         }
         Update: {
           boost_tag?: Json | null
           channel_id?: string
           content?: string
           created_at?: string | null
+          deleted_at?: string | null
+          deleted_for_everyone?: boolean | null
           deliverable_tag?: Json | null
+          edited_at?: string | null
+          forwarded_from_channel?: string | null
+          forwarded_from_id?: string | null
           id?: string
+          is_deleted?: boolean | null
           is_edited?: boolean | null
           is_pinned?: boolean | null
           is_system_message?: boolean | null
+          message_type?: string | null
+          original_content?: string | null
           reply_to_content?: string | null
           reply_to_id?: string | null
           reply_to_sender?: string | null
@@ -1365,6 +1535,8 @@ export type Database = {
           sender_role?: string | null
           status?: string | null
           thread_count?: number | null
+          voice_duration?: number | null
+          voice_url?: string | null
         }
         Relationships: [
           {
@@ -1372,6 +1544,13 @@ export type Database = {
             columns: ["channel_id"]
             isOneToOne: false
             referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_forwarded_from_id_fkey"
+            columns: ["forwarded_from_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
             referencedColumns: ["id"]
           },
           {
@@ -1654,6 +1833,45 @@ export type Database = {
           },
         ]
       }
+      pinned_messages: {
+        Row: {
+          channel_id: string
+          id: string
+          message_id: string
+          pinned_at: string | null
+          pinned_by: string | null
+        }
+        Insert: {
+          channel_id: string
+          id?: string
+          message_id: string
+          pinned_at?: string | null
+          pinned_by?: string | null
+        }
+        Update: {
+          channel_id?: string
+          id?: string
+          message_id?: string
+          pinned_at?: string | null
+          pinned_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pinned_messages_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pinned_messages_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: true
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_team: {
         Row: {
           avatar: string | null
@@ -1850,6 +2068,35 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      saved_messages: {
+        Row: {
+          id: string
+          message_id: string
+          saved_at: string | null
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          message_id: string
+          saved_at?: string | null
+          user_id: string
+        }
+        Update: {
+          id?: string
+          message_id?: string
+          saved_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saved_messages_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
             referencedColumns: ["id"]
           },
         ]
@@ -2611,6 +2858,10 @@ export type Database = {
       }
     }
     Functions: {
+      increment_team_member_count: {
+        Args: { p_team_id: string }
+        Returns: undefined
+      }
       refresh_dashboard_metrics: {
         Args: { p_tenant_id: string }
         Returns: undefined

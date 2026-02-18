@@ -13,6 +13,7 @@ export interface User {
 
 export interface Workspace {
   id: string;
+  clientId?: string;
   clientName: string;
   clientLogo?: string;
   lastMessage: string;
@@ -36,9 +37,14 @@ export interface Channel {
   isHidden?: boolean; // internal channels hidden from clients
   lastMessage?: string;
   lastMessageTime?: string;
+  description?: string;
+  isPrivate?: boolean;
+  isArchived?: boolean;
+  isMuted?: boolean;
 }
 
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+export type MessageType = 'text' | 'voice' | 'image' | 'video' | 'file' | 'system';
 
 export interface MessageReaction {
   emoji: string;
@@ -53,6 +59,7 @@ export interface MessageFile {
   url: string;
   size: string;
   thumbnail?: string;
+  mimeType?: string;
 }
 
 export interface DeliverableTag {
@@ -90,7 +97,38 @@ export interface Message {
   boostTag?: BoostTag;
   isPinned?: boolean;
   isEdited?: boolean;
+  isDeleted?: boolean;
+  deletedForEveryone?: boolean;
   threadCount?: number;
+  messageType?: MessageType;
+  voiceUrl?: string;
+  voiceDuration?: number;
+  forwardedFrom?: {
+    id: string;
+    channelName: string;
+  };
+  isSaved?: boolean;
+}
+
+export interface ChannelMember {
+  id: string;
+  channelId: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  userRole: string;
+  joinedAt: string;
+  isMuted: boolean;
+  notificationPref: 'all' | 'mentions' | 'none';
+}
+
+export interface CannedResponse {
+  id: string;
+  title: string;
+  content: string;
+  shortcut?: string;
+  category: string;
+  usageCount: number;
 }
 
 export interface PackageUsage {
@@ -131,3 +169,17 @@ export interface BoostWizardData {
 }
 
 export type QuickActionType = 'design' | 'video' | 'boost' | 'approval';
+
+// Message context menu action types
+export type MessageAction = 
+  | 'reply'
+  | 'edit'
+  | 'delete'
+  | 'delete-for-everyone'
+  | 'pin'
+  | 'unpin'
+  | 'forward'
+  | 'copy'
+  | 'save'
+  | 'unsave'
+  | 'create-task';

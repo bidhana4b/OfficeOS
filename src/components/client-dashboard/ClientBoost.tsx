@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/lib/auth';
+import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { createCampaign } from '@/lib/data-service';
 import {
   Rocket,
   TrendingUp,
@@ -13,6 +16,7 @@ import {
   Target,
   Calendar,
   Zap,
+  Loader2,
 } from 'lucide-react';
 
 type CampaignStatus = 'live' | 'paused' | 'completed' | 'draft';
@@ -30,7 +34,7 @@ interface Campaign {
   startDate: string;
 }
 
-const mockCampaigns: Campaign[] = [
+const fallbackCampaigns: Campaign[] = [
   {
     id: '1',
     name: 'New Year Sale — Meta Ads',
@@ -114,13 +118,111 @@ function MiniSparkline({ color }: { color: string }) {
 }
 
 export default function ClientBoost() {
+  const { user } = useAuth();
+  const [campaigns, setCampaigns] = useState<Campaign[]>(fallbackCampaigns);
+  const [loading, setLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [wizardData, setWizardData] = useState({
+    platform: '',
+    name: '',
+    targetAudience: '',
+    goal: '',
+    budget: '',
+    startDate: '',
+    endDate: '',
+  });
 
-  const totalBudget = mockCampaigns.reduce((s, c) => s + c.budget, 0);
-  const totalSpent = mockCampaigns.reduce((s, c) => s + c.spent, 0);
-  const totalLeads = mockCampaigns.reduce((s, c) => s + c.leads, 0);
-  const liveCampaigns = mockCampaigns.filter((c) => c.status === 'live').length;
+  const fetchCampaigns = useCallback(async () => {
+    try {
+      const clientId = user?.client_id;
+      if (!clientId) { setLoading(false); return; }
+
+      const { data: result, error: err } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('client_id', clientId)
+        .eq('tenant_id', DEMO_TENANT_ID)
+        .order('created_at', { ascending: false });
+
+      if (err) throw err;
+
+      if (result && result.length > 0) {
+        const mapped: Campaign[] = result.map((r: Record<string, unknown>) => ({
+          id: r.id as string,
+          name: r.name as string,
+          platform: (r.platform as string) || 'Meta',
+          budget: Number(r.budget) || 0,
+          spent: Number(r.spent) || 0,
+          status: ((r.status as string) === 'requested' ? 'draft' : r.status) as CampaignStatus,
+          impressions: Number(r.impressions) || 0,
+          clicks: Number(r.clicks) || 0,
+          leads: Number(r.leads) || 0,
+          startDate: r.start_date ? (r.start_date as string).split('T')[0] : '',
+        }));
+        setCampaigns(mapped);
+      }
+    } catch (e) {
+      console.error('Failed to fetch campaigns:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.client_id]);
+
+  useEffect(() => { fetchCampaigns(); }, [fetchCampaigns]);
+
+  // Real-time subscription
+  useEffect(() => {
+    const clientId = user?.client_id;
+    if (!clientId) return;
+
+    const channel = supabase
+      .channel(`client-campaigns-${clientId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'campaigns',
+        filter: `client_id=eq.${clientId}`,
+      }, () => { fetchCampaigns(); })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.client_id, fetchCampaigns]);
+
+  const handleSubmitBoost = useCallback(async () => {
+    const clientId = user?.client_id;
+    if (!clientId || !wizardData.name || !wizardData.budget) return;
+    setSubmitting(true);
+    try {
+      await createCampaign({
+        client_id: clientId,
+        name: wizardData.name,
+        platform: wizardData.platform,
+        budget: Number(wizardData.budget),
+        goal: wizardData.goal,
+        target_audience: wizardData.targetAudience,
+        duration: wizardData.startDate && wizardData.endDate
+          ? `${wizardData.startDate} to ${wizardData.endDate}`
+          : undefined,
+        start_date: wizardData.startDate || undefined,
+        end_date: wizardData.endDate || undefined,
+      });
+      setShowWizard(false);
+      setWizardStep(0);
+      setWizardData({ platform: '', name: '', targetAudience: '', goal: '', budget: '', startDate: '', endDate: '' });
+      await fetchCampaigns();
+    } catch (e) {
+      console.error('Failed to create boost:', e);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [user?.client_id, wizardData, fetchCampaigns]);
+
+  const totalBudget = campaigns.reduce((s, c) => s + c.budget, 0);
+  const totalSpent = campaigns.reduce((s, c) => s + c.spent, 0);
+  const totalLeads = campaigns.reduce((s, c) => s + c.leads, 0);
+  const liveCampaigns = campaigns.filter((c) => c.status === 'live').length;
 
   return (
     <div className="h-full flex flex-col">
@@ -131,7 +233,7 @@ export default function ClientBoost() {
           Boost Campaigns
         </h1>
         <p className="font-mono text-[10px] text-white/30 mt-0.5">
-          {liveCampaigns} live • {mockCampaigns.length} total campaigns
+          {liveCampaigns} live • {campaigns.length} total campaigns
         </p>
       </div>
 
@@ -157,7 +259,7 @@ export default function ClientBoost() {
 
       {/* Campaign List */}
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-4 space-y-3">
-        {mockCampaigns.map((campaign, i) => {
+        {campaigns.map((campaign, i) => {
           const status = statusStyles[campaign.status];
           const spentPercent = campaign.budget > 0 ? Math.round((campaign.spent / campaign.budget) * 100) : 0;
           const platformColor = platformColors[campaign.platform] || '#888';
@@ -304,7 +406,10 @@ export default function ClientBoost() {
                     {['Meta (Facebook & Instagram)', 'Google Ads', 'TikTok Ads'].map((platform) => (
                       <button
                         key={platform}
-                        onClick={() => setWizardStep(1)}
+                        onClick={() => {
+                          setWizardData((prev) => ({ ...prev, platform: platform.split(' ')[0] }));
+                          setWizardStep(1);
+                        }}
                         className="w-full glass-card p-4 flex items-center justify-between active:scale-[0.98] transition-transform"
                       >
                         <span className="font-display font-semibold text-sm text-white">{platform}</span>
@@ -319,14 +424,20 @@ export default function ClientBoost() {
                     <p className="font-mono text-xs text-white/40">Campaign details</p>
                     <input
                       placeholder="Campaign Name"
+                      value={wizardData.name}
+                      onChange={(e) => setWizardData((prev) => ({ ...prev, name: e.target.value }))}
                       className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm placeholder:text-white/20 focus:outline-none focus:border-titan-cyan/30"
                     />
                     <input
                       placeholder="Target Audience"
+                      value={wizardData.targetAudience}
+                      onChange={(e) => setWizardData((prev) => ({ ...prev, targetAudience: e.target.value }))}
                       className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm placeholder:text-white/20 focus:outline-none focus:border-titan-cyan/30"
                     />
                     <textarea
                       placeholder="Campaign Goal"
+                      value={wizardData.goal}
+                      onChange={(e) => setWizardData((prev) => ({ ...prev, goal: e.target.value }))}
                       rows={3}
                       className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm placeholder:text-white/20 focus:outline-none focus:border-titan-cyan/30 resize-none"
                     />
@@ -345,24 +456,31 @@ export default function ClientBoost() {
                     <input
                       placeholder="Budget (BDT)"
                       type="number"
+                      value={wizardData.budget}
+                      onChange={(e) => setWizardData((prev) => ({ ...prev, budget: e.target.value }))}
                       className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm placeholder:text-white/20 focus:outline-none focus:border-titan-cyan/30"
                     />
                     <div className="grid grid-cols-2 gap-3">
                       <input
                         type="date"
+                        value={wizardData.startDate}
+                        onChange={(e) => setWizardData((prev) => ({ ...prev, startDate: e.target.value }))}
                         className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm focus:outline-none focus:border-titan-cyan/30"
                       />
                       <input
                         type="date"
+                        value={wizardData.endDate}
+                        onChange={(e) => setWizardData((prev) => ({ ...prev, endDate: e.target.value }))}
                         className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm focus:outline-none focus:border-titan-cyan/30"
                       />
                     </div>
                     <button
-                      onClick={() => setShowWizard(false)}
-                      className="w-full py-3 rounded-xl bg-gradient-to-r from-titan-purple/20 to-titan-cyan/20 border border-titan-purple/30 font-display font-bold text-sm text-white active:scale-[0.97] transition-transform flex items-center justify-center gap-2"
+                      onClick={handleSubmitBoost}
+                      disabled={submitting || !wizardData.name || !wizardData.budget}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-titan-purple/20 to-titan-cyan/20 border border-titan-purple/30 font-display font-bold text-sm text-white active:scale-[0.97] transition-transform flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                      <Rocket className="w-4 h-4" />
-                      Submit Boost Request
+                      {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                      {submitting ? 'Submitting...' : 'Submit Boost Request'}
                     </button>
                   </div>
                 )}

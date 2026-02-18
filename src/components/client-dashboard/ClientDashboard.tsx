@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
+import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import ClientHome from './ClientHome';
 import ClientTasks from './ClientTasks';
 import ClientBoost from './ClientBoost';
@@ -35,13 +36,48 @@ export default function ClientDashboard() {
   const [activeTab, setActiveTab] = useState<ClientTab>('home');
   const { user, logout } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [pendingTasks, setPendingTasks] = useState(0);
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);
   }, []);
 
-  const unreadMessages = 3;
-  const pendingTasks = 2;
+  // Fetch real badge counts
+  useEffect(() => {
+    async function fetchCounts() {
+      const clientId = user?.client_id;
+      if (!clientId) return;
+
+      try {
+        // Unread messages: find workspace → channels → sum unread_count
+        const { data: workspace } = await supabase
+          .from('workspaces')
+          .select('channels(unread_count)')
+          .eq('client_id', clientId)
+          .single();
+
+        if (workspace) {
+          const chs = (workspace.channels as Record<string, unknown>[]) || [];
+          const totalUnread = chs.reduce((sum, ch) => sum + (Number(ch.unread_count) || 0), 0);
+          setUnreadMessages(totalUnread);
+        }
+
+        // Pending tasks: deliverables not completed
+        const { count } = await supabase
+          .from('deliverables')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', clientId)
+          .eq('tenant_id', DEMO_TENANT_ID)
+          .in('status', ['pending', 'in-progress', 'review']);
+
+        setPendingTasks(count || 0);
+      } catch (e) {
+        console.error('Failed to fetch badge counts:', e);
+      }
+    }
+    fetchCounts();
+  }, [user?.client_id, activeTab, refreshKey]);
 
   return (
     <div className="h-screen bg-titan-bg flex flex-col overflow-hidden relative">

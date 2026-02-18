@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
+import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { creditWallet } from '@/lib/data-service';
 import {
   CreditCard,
   Download,
@@ -16,6 +17,7 @@ import {
   ArrowUpRight,
   FileText,
   X,
+  Loader2,
 } from 'lucide-react';
 
 type InvoiceStatus = 'paid' | 'sent' | 'overdue' | 'draft';
@@ -30,7 +32,7 @@ interface Invoice {
   description: string;
 }
 
-const mockInvoices: Invoice[] = [
+const fallbackInvoices: Invoice[] = [
   {
     id: '1',
     number: 'INV-2024-001',
@@ -84,28 +86,108 @@ const statusConfig: Record<InvoiceStatus, { label: string; color: string; icon: 
 
 export default function ClientBilling() {
   const { user } = useAuth();
+  const [invoices, setInvoices] = useState<Invoice[]>(fallbackInvoices);
   const [walletBalance, setWalletBalance] = useState(125000);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showAddFund, setShowAddFund] = useState(false);
+  const [fundAmount, setFundAmount] = useState('');
+  const [addingFund, setAddingFund] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchWallet() {
-      const clientId = user?.client_id || '00000000-0000-0000-0000-0000000000c1';
-      const { data } = await supabase
+  const fetchBillingData = useCallback(async () => {
+    try {
+      const clientId = user?.client_id;
+      if (!clientId) { setLoading(false); return; }
+
+      // Fetch wallet balance
+      const { data: walletData } = await supabase
         .from('client_wallets')
         .select('balance')
         .eq('client_id', clientId)
         .single();
-      if (data) setWalletBalance(data.balance);
-    }
-    fetchWallet();
-  }, [user]);
+      if (walletData) setWalletBalance(Number(walletData.balance));
 
-  const totalDue = mockInvoices
+      // Fetch invoices
+      const { data: invoiceData, error: invErr } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false });
+
+      if (!invErr && invoiceData && invoiceData.length > 0) {
+        const mapped: Invoice[] = invoiceData.map((r: Record<string, unknown>) => ({
+          id: r.id as string,
+          number: (r.invoice_number as string) || '',
+          amount: Number(r.amount) || 0,
+          status: (r.status as InvoiceStatus) || 'draft',
+          dueDate: r.due_date ? (r.due_date as string).split('T')[0] : '',
+          paidAt: r.paid_at ? (r.paid_at as string).split('T')[0] : undefined,
+          description: (r.notes as string) || `Invoice ${r.invoice_number}`,
+        }));
+        setInvoices(mapped);
+      }
+    } catch (e) {
+      console.error('Failed to fetch billing data:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.client_id]);
+
+  useEffect(() => { fetchBillingData(); }, [fetchBillingData]);
+
+  // Real-time subscriptions for billing data
+  useEffect(() => {
+    const clientId = user?.client_id;
+    if (!clientId) return;
+
+    const walletChannel = supabase
+      .channel(`client-wallet-${clientId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'client_wallets',
+        filter: `client_id=eq.${clientId}`,
+      }, () => { fetchBillingData(); })
+      .subscribe();
+
+    const invoiceChannel = supabase
+      .channel(`client-invoices-${clientId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'invoices',
+        filter: `client_id=eq.${clientId}`,
+      }, () => { fetchBillingData(); })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(walletChannel);
+      supabase.removeChannel(invoiceChannel);
+    };
+  }, [user?.client_id, fetchBillingData]);
+
+  const handleAddFund = useCallback(async () => {
+    const clientId = user?.client_id;
+    const amount = Number(fundAmount);
+    if (!clientId || !amount || amount <= 0) return;
+    setAddingFund(true);
+    try {
+      await creditWallet(clientId, amount, 'Client fund deposit');
+      setShowAddFund(false);
+      setFundAmount('');
+      await fetchBillingData();
+    } catch (e) {
+      console.error('Failed to add fund:', e);
+    } finally {
+      setAddingFund(false);
+    }
+  }, [user?.client_id, fundAmount, fetchBillingData]);
+
+  const totalDue = invoices
     .filter((inv) => inv.status === 'sent' || inv.status === 'overdue')
     .reduce((sum, inv) => sum + inv.amount, 0);
 
-  const totalPaid = mockInvoices
+  const totalPaid = invoices
     .filter((inv) => inv.status === 'paid')
     .reduce((sum, inv) => sum + inv.amount, 0);
 
@@ -177,11 +259,11 @@ export default function ClientBilling() {
               <Receipt className="w-4 h-4 text-titan-cyan" />
               Invoices
             </h2>
-            <span className="font-mono text-[10px] text-white/30">{mockInvoices.length} total</span>
+            <span className="font-mono text-[10px] text-white/30">{invoices.length} total</span>
           </div>
 
           <div className="space-y-2">
-            {mockInvoices.map((invoice, i) => {
+            {invoices.map((invoice, i) => {
               const status = statusConfig[invoice.status];
               const StatusIcon = status.icon;
 
@@ -338,6 +420,8 @@ export default function ClientBilling() {
                 <input
                   type="number"
                   placeholder="Amount (BDT)"
+                  value={fundAmount}
+                  onChange={(e) => setFundAmount(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-sm placeholder:text-white/20 focus:outline-none focus:border-titan-lime/30"
                 />
 
@@ -345,12 +429,22 @@ export default function ClientBilling() {
                   {[5000, 10000, 25000, 50000].map((amount) => (
                     <button
                       key={amount}
+                      onClick={() => setFundAmount(String(amount))}
                       className="flex-1 py-2 rounded-lg glass-card font-mono text-[10px] text-white/50 active:scale-95 transition-transform"
                     >
                       ৳{(amount / 1000).toFixed(0)}K
                     </button>
                   ))}
                 </div>
+
+                <button
+                  onClick={handleAddFund}
+                  disabled={addingFund || !fundAmount || Number(fundAmount) <= 0}
+                  className="w-full py-3 rounded-xl bg-titan-lime/15 border border-titan-lime/30 font-display font-bold text-sm text-titan-lime active:scale-[0.97] transition-transform disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {addingFund ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {addingFund ? 'Processing...' : 'Add Fund'}
+                </button>
 
                 <p className="font-mono text-[10px] text-white/25">Payment Methods</p>
                 {['Bank Transfer', 'bKash / Nagad', 'Credit Card'].map((method) => (

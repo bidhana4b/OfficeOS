@@ -5,6 +5,11 @@
 
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 
+function requireSupabaseClient() {
+  if (!supabase) throw new Error('Supabase client not initialized. Missing VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY.');
+  return supabase;
+}
+
 // ============================================
 // CLIENT CRUD
 // ============================================
@@ -22,7 +27,8 @@ export interface CreateClientInput {
 }
 
 export async function createClient(input: CreateClientInput) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('clients')
     .insert({
       ...input,
@@ -38,7 +44,8 @@ export async function createClient(input: CreateClientInput) {
 }
 
 export async function updateClient(id: string, updates: Partial<CreateClientInput>) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('clients')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -50,11 +57,8 @@ export async function updateClient(id: string, updates: Partial<CreateClientInpu
 }
 
 export async function deleteClient(id: string) {
-  const { error } = await supabase
-    .from('clients')
-    .delete()
-    .eq('id', id);
-
+  const sb = requireSupabaseClient();
+  const { error } = await sb.from('clients').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -70,14 +74,16 @@ export interface LinkPackageInput {
 }
 
 export async function linkPackageToClient(input: LinkPackageInput) {
+  const sb = requireSupabaseClient();
+
   // Deactivate existing active packages for this client
-  await supabase
+  await sb
     .from('client_packages')
     .update({ status: 'expired' })
     .eq('client_id', input.client_id)
     .eq('status', 'active');
 
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from('client_packages')
     .insert({
       client_id: input.client_id,
@@ -95,7 +101,8 @@ export async function linkPackageToClient(input: LinkPackageInput) {
 }
 
 export async function getPackageUsage(clientPackageId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('package_usage')
     .select('*')
     .eq('client_package_id', clientPackageId);
@@ -126,7 +133,8 @@ export async function createDeliverable(input: CreateDeliverableInput) {
     ? Math.max(0, Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : 0;
 
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('deliverables')
     .insert({
       ...input,
@@ -157,7 +165,8 @@ export async function updateDeliverableStatus(
     cancelled: 0,
   };
 
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('deliverables')
     .update({
       status,
@@ -175,7 +184,8 @@ export async function updateDeliverableStatus(
 }
 
 export async function getDeliverablesByAssignee(assigneeId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('deliverables')
     .select('*, clients(business_name)')
     .eq('assigned_to', assigneeId)
@@ -187,7 +197,8 @@ export async function getDeliverablesByAssignee(assigneeId: string) {
 }
 
 export async function getDeliverablesByClient(clientId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('deliverables')
     .select('*, team_members:assigned_to(name, avatar)')
     .eq('client_id', clientId)
@@ -215,7 +226,8 @@ export interface SendMessageInput {
 }
 
 export async function sendMessage(input: SendMessageInput) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('messages')
     .insert({
       channel_id: input.channel_id,
@@ -238,7 +250,8 @@ export async function sendMessage(input: SendMessageInput) {
 }
 
 export async function getChannelMessages(channelId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('messages')
     .select('*, message_reactions(*), message_files(*)')
     .eq('channel_id', channelId)
@@ -252,7 +265,8 @@ export function subscribeToMessages(
   channelId: string,
   callback: (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => void
 ) {
-  const channel = supabase
+  const sb = requireSupabaseClient();
+  const channel = sb
     .channel(`messages-${channelId}`)
     .on(
       'postgres_changes',
@@ -273,8 +287,427 @@ export function subscribeToMessages(
     .subscribe();
 
   return () => {
-    supabase.removeChannel(channel);
+    const sb = requireSupabaseClient();
+    sb.removeChannel(channel);
   };
+}
+
+// ============================================
+// MESSAGE REACTIONS (DB PERSIST)
+// ============================================
+
+export async function addMessageReaction(messageId: string, emoji: string, userId: string) {
+  const sb = requireSupabaseClient();
+
+  // Check if reaction for this emoji already exists on this message
+  const { data: existing } = await sb
+    .from('message_reactions')
+    .select('*')
+    .eq('message_id', messageId)
+    .eq('emoji', emoji)
+    .maybeSingle();
+
+  if (existing) {
+    // Add user to existing reaction
+    const currentUsers: string[] = existing.user_ids || [];
+    if (currentUsers.includes(userId)) return existing; // Already reacted
+
+    const updatedUsers = [...currentUsers, userId];
+    const { data, error } = await sb
+      .from('message_reactions')
+      .update({
+        user_ids: updatedUsers,
+        count: updatedUsers.length,
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } else {
+    // Create new reaction
+    const { data, error } = await sb
+      .from('message_reactions')
+      .insert({
+        message_id: messageId,
+        emoji,
+        user_ids: [userId],
+        count: 1,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+}
+
+export async function removeMessageReaction(messageId: string, emoji: string, userId: string) {
+  const sb = requireSupabaseClient();
+
+  const { data: existing } = await sb
+    .from('message_reactions')
+    .select('*')
+    .eq('message_id', messageId)
+    .eq('emoji', emoji)
+    .maybeSingle();
+
+  if (!existing) return null;
+
+  const currentUsers: string[] = existing.user_ids || [];
+  const updatedUsers = currentUsers.filter((u: string) => u !== userId);
+
+  if (updatedUsers.length === 0) {
+    // Remove reaction entirely
+    const { error } = await sb
+      .from('message_reactions')
+      .delete()
+      .eq('id', existing.id);
+
+    if (error) throw error;
+    return null;
+  } else {
+    // Update user list
+    const { data, error } = await sb
+      .from('message_reactions')
+      .update({
+        user_ids: updatedUsers,
+        count: updatedUsers.length,
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+}
+
+// ============================================
+// ENHANCED MESSAGE OPERATIONS
+// ============================================
+
+export async function editMessage(messageId: string, newContent: string) {
+  const sb = requireSupabaseClient();
+  const { data: existing } = await sb
+    .from('messages')
+    .select('content')
+    .eq('id', messageId)
+    .single();
+
+  const { data, error } = await sb
+    .from('messages')
+    .update({
+      content: newContent,
+      is_edited: true,
+      edited_at: new Date().toISOString(),
+      original_content: existing?.content || null,
+    })
+    .eq('id', messageId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteMessage(messageId: string, forEveryone: boolean = false) {
+  const sb = requireSupabaseClient();
+  if (forEveryone) {
+    const { data, error } = await sb
+      .from('messages')
+      .update({
+        is_deleted: true,
+        deleted_for_everyone: true,
+        deleted_at: new Date().toISOString(),
+        content: '🗑️ This message was deleted',
+      })
+      .eq('id', messageId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  } else {
+    const { data, error } = await sb
+      .from('messages')
+      .update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+      })
+      .eq('id', messageId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+}
+
+export async function pinMessage(messageId: string, channelId: string, pinnedBy: string) {
+  const sb = requireSupabaseClient();
+  // Update message
+  await sb.from('messages').update({ is_pinned: true }).eq('id', messageId);
+  // Insert into pinned_messages
+  const { data, error } = await sb
+    .from('pinned_messages')
+    .insert({
+      message_id: messageId,
+      channel_id: channelId,
+      pinned_by: pinnedBy,
+    })
+    .select()
+    .single();
+  if (error && error.code !== '23505') throw error; // Ignore duplicate
+  return data;
+}
+
+export async function unpinMessage(messageId: string) {
+  const sb = requireSupabaseClient();
+  await sb.from('messages').update({ is_pinned: false }).eq('id', messageId);
+  const { error } = await sb.from('pinned_messages').delete().eq('message_id', messageId);
+  if (error) throw error;
+}
+
+export async function getPinnedMessages(channelId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('pinned_messages')
+    .select('*, messages(*)')
+    .eq('channel_id', channelId)
+    .order('pinned_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function saveMessage(messageId: string, userId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('saved_messages')
+    .insert({ message_id: messageId, user_id: userId })
+    .select()
+    .single();
+  if (error && error.code !== '23505') throw error;
+  return data;
+}
+
+export async function unsaveMessage(messageId: string, userId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('saved_messages')
+    .delete()
+    .eq('message_id', messageId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+export async function getSavedMessages(userId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('saved_messages')
+    .select('*, messages(*)')
+    .eq('user_id', userId)
+    .order('saved_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function forwardMessage(
+  originalMessageId: string,
+  targetChannelId: string,
+  senderId: string,
+  senderName: string,
+  senderAvatar: string,
+  senderRole: string,
+  originalChannelName: string
+) {
+  const sb = requireSupabaseClient();
+  // Get original message
+  const { data: original } = await sb
+    .from('messages')
+    .select('content')
+    .eq('id', originalMessageId)
+    .single();
+
+  if (!original) throw new Error('Original message not found');
+
+  const { data, error } = await sb
+    .from('messages')
+    .insert({
+      channel_id: targetChannelId,
+      sender_id: senderId,
+      sender_name: senderName,
+      sender_avatar: senderAvatar,
+      sender_role: senderRole,
+      content: original.content,
+      status: 'sent',
+      forwarded_from_id: originalMessageId,
+      forwarded_from_channel: originalChannelName,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function markMessageAsRead(messageId: string, userId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('message_read_receipts')
+    .insert({ message_id: messageId, user_id: userId })
+    .select()
+    .single();
+  if (error && error.code !== '23505') throw error;
+  return data;
+}
+
+// ============================================
+// FILE UPLOAD (Supabase Storage)
+// ============================================
+
+export async function uploadMessageFile(file: File, channelId: string) {
+  const sb = requireSupabaseClient();
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${channelId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+  const { data, error } = await sb.storage
+    .from('message-attachments')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (error) throw error;
+
+  const { data: publicUrl } = sb.storage
+    .from('message-attachments')
+    .getPublicUrl(data.path);
+
+  return {
+    path: data.path,
+    url: publicUrl.publicUrl,
+    name: file.name,
+    size: formatFileSize(file.size),
+    mimeType: file.type,
+  };
+}
+
+export async function addMessageFile(
+  messageId: string,
+  file: { name: string; type: string; url: string; size: string; thumbnail?: string }
+) {
+  const sb = requireSupabaseClient();
+  const fileType = file.type.startsWith('image/')
+    ? 'image'
+    : file.type.startsWith('video/')
+    ? 'video'
+    : file.type.startsWith('audio/')
+    ? 'voice'
+    : 'document';
+
+  const { data, error } = await sb
+    .from('message_files')
+    .insert({
+      message_id: messageId,
+      name: file.name,
+      type: fileType,
+      url: file.url,
+      size: file.size,
+      thumbnail: file.thumbnail || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// ============================================
+// CHANNEL MEMBER MANAGEMENT
+// ============================================
+
+export async function addChannelMember(
+  channelId: string,
+  userId: string,
+  userName: string,
+  userAvatar: string,
+  userRole: string
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('channel_members')
+    .insert({
+      channel_id: channelId,
+      user_id: userId,
+      user_name: userName,
+      user_avatar: userAvatar,
+      user_role: userRole,
+    })
+    .select()
+    .single();
+  if (error && error.code !== '23505') throw error;
+  return data;
+}
+
+export async function removeChannelMember(channelId: string, userId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('channel_members')
+    .delete()
+    .eq('channel_id', channelId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+export async function getChannelMembers(channelId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('channel_members')
+    .select('*')
+    .eq('channel_id', channelId)
+    .order('joined_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+// ============================================
+// CANNED RESPONSES
+// ============================================
+
+export async function getCannedResponses() {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('canned_responses')
+    .select('*')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .order('usage_count', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createCannedResponse(title: string, content: string, shortcut?: string, category?: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('canned_responses')
+    .insert({
+      tenant_id: DEMO_TENANT_ID,
+      title,
+      content,
+      shortcut,
+      category: category || 'general',
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 // ============================================
@@ -294,7 +727,8 @@ export interface CreateCampaignInput {
 }
 
 export async function createCampaign(input: CreateCampaignInput) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('campaigns')
     .insert({
       ...input,
@@ -308,7 +742,7 @@ export async function createCampaign(input: CreateCampaignInput) {
   if (error) throw error;
 
   // Log activity
-  await supabase.from('activities').insert({
+  await sb.from('activities').insert({
     tenant_id: DEMO_TENANT_ID,
     client_id: input.client_id,
     type: 'boost_launched',
@@ -322,7 +756,8 @@ export async function createCampaign(input: CreateCampaignInput) {
 }
 
 export async function updateCampaignStatus(id: string, status: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('campaigns')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -338,8 +773,9 @@ export async function updateCampaignStatus(id: string, status: string) {
 // ============================================
 
 export async function creditWallet(clientId: string, amount: number, description?: string) {
+  const sb = requireSupabaseClient();
   // Get wallet ID
-  const { data: wallet, error: walletErr } = await supabase
+  const { data: wallet, error: walletErr } = await sb
     .from('client_wallets')
     .select('id')
     .eq('client_id', clientId)
@@ -347,7 +783,7 @@ export async function creditWallet(clientId: string, amount: number, description
 
   if (walletErr || !wallet) throw walletErr || new Error('Wallet not found');
 
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from('wallet_transactions')
     .insert({
       client_wallet_id: wallet.id,
@@ -364,7 +800,8 @@ export async function creditWallet(clientId: string, amount: number, description
 }
 
 export async function debitWallet(clientId: string, amount: number, description?: string, referenceType?: string, referenceId?: string) {
-  const { data: wallet, error: walletErr } = await supabase
+  const sb = requireSupabaseClient();
+  const { data: wallet, error: walletErr } = await sb
     .from('client_wallets')
     .select('id, balance')
     .eq('client_id', clientId)
@@ -377,7 +814,7 @@ export async function debitWallet(clientId: string, amount: number, description?
     throw new Error('Insufficient wallet balance');
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from('wallet_transactions')
     .insert({
       client_wallet_id: wallet.id,
@@ -395,7 +832,8 @@ export async function debitWallet(clientId: string, amount: number, description?
 }
 
 export async function getWalletBalance(clientId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('client_wallets')
     .select('*')
     .eq('client_id', clientId)
@@ -406,7 +844,8 @@ export async function getWalletBalance(clientId: string) {
 }
 
 export async function getWalletTransactions(clientId: string) {
-  const { data: wallet } = await supabase
+  const sb = requireSupabaseClient();
+  const { data: wallet } = await sb
     .from('client_wallets')
     .select('id')
     .eq('client_id', clientId)
@@ -414,7 +853,7 @@ export async function getWalletTransactions(clientId: string) {
 
   if (!wallet) return [];
 
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from('wallet_transactions')
     .select('*')
     .eq('client_wallet_id', wallet.id)
@@ -438,15 +877,17 @@ export interface CreateInvoiceInput {
 }
 
 export async function createInvoice(input: CreateInvoiceInput) {
+  const sb = requireSupabaseClient();
+
   // Generate invoice number
-  const { count } = await supabase
+  const { count } = await sb
     .from('invoices')
     .select('*', { count: 'exact', head: true })
     .eq('tenant_id', DEMO_TENANT_ID);
 
   const invoiceNumber = `INV-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`;
 
-  const { data: invoice, error } = await supabase
+  const { data: invoice, error } = await sb
     .from('invoices')
     .insert({
       tenant_id: DEMO_TENANT_ID,
@@ -465,7 +906,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
 
   // Insert line items
   if (input.items && input.items.length > 0) {
-    await supabase
+    await sb
       .from('invoice_items')
       .insert(
         input.items.map((item) => ({
@@ -478,7 +919,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
   }
 
   // Log activity
-  await supabase.from('activities').insert({
+  await sb.from('activities').insert({
     tenant_id: DEMO_TENANT_ID,
     client_id: input.client_id,
     type: 'invoice_generated',
@@ -497,7 +938,8 @@ export async function updateInvoiceStatus(id: string, status: string) {
     updates.paid_at = new Date().toISOString();
   }
 
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('invoices')
     .update(updates)
     .eq('id', id)
@@ -508,7 +950,7 @@ export async function updateInvoiceStatus(id: string, status: string) {
 
   // If paid, log payment activity
   if (status === 'paid' && data) {
-    await supabase.from('activities').insert({
+    await sb.from('activities').insert({
       tenant_id: DEMO_TENANT_ID,
       client_id: data.client_id,
       type: 'payment_received',
@@ -520,6 +962,109 @@ export async function updateInvoiceStatus(id: string, status: string) {
   }
 
   return data;
+}
+
+// ============================================
+// TEAM MEMBER CRUD
+// ============================================
+
+export interface CreateTeamMemberInput {
+  name: string;
+  email: string;
+  primary_role: string;
+  secondary_roles?: string[];
+  work_capacity_hours?: number;
+  avatar?: string;
+  status?: string;
+  team_ids?: string[];
+  skills?: { skill_name: string; skill_level: number }[];
+}
+
+export async function createTeamMember(input: CreateTeamMemberInput) {
+  const sb = requireSupabaseClient();
+  const { data: member, error } = await sb
+    .from('team_members')
+    .insert({
+      tenant_id: DEMO_TENANT_ID,
+      name: input.name,
+      email: input.email,
+      primary_role: input.primary_role,
+      secondary_roles: input.secondary_roles || [],
+      work_capacity_hours: input.work_capacity_hours || 8,
+      avatar: input.avatar || input.name.substring(0, 2).toUpperCase(),
+      status: input.status || 'online',
+      current_load: 0,
+      active_deliverables: 0,
+      boost_campaigns: 0,
+      tasks_completed_this_month: 0,
+      join_date: new Date().toISOString().split('T')[0],
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Link to teams
+  if (input.team_ids && input.team_ids.length > 0) {
+    const teamLinks = input.team_ids.map((teamId) => ({
+      team_member_id: member.id,
+      team_id: teamId,
+    }));
+    await sb.from('team_member_teams').insert(teamLinks);
+
+    // Update team total_members count
+    for (const teamId of input.team_ids) {
+      await sb.rpc('increment_team_member_count', { p_team_id: teamId }).catch(() => {
+        // Fallback: manual update
+        sb.from('teams')
+          .update({ total_members: 1 })
+          .eq('id', teamId);
+      });
+    }
+  }
+
+  // Add skills
+  if (input.skills && input.skills.length > 0) {
+    const skillRecords = input.skills.map((s) => ({
+      team_member_id: member.id,
+      skill_name: s.skill_name,
+      skill_level: s.skill_level,
+    }));
+    await sb.from('user_skills').insert(skillRecords);
+  }
+
+  // Log activity
+  await sb.from('activities').insert({
+    tenant_id: DEMO_TENANT_ID,
+    type: 'team_update',
+    title: `New Team Member: ${input.name}`,
+    description: `${input.primary_role} joined the team`,
+    timestamp: new Date().toISOString(),
+    metadata: { name: input.name, role: input.primary_role },
+  });
+
+  return member;
+}
+
+export async function updateTeamMember(id: string, updates: Partial<CreateTeamMemberInput>) {
+  const sb = requireSupabaseClient();
+  const { team_ids, skills, ...memberUpdates } = updates;
+
+  const { data, error } = await sb
+    .from('team_members')
+    .update(memberUpdates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTeamMember(id: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb.from('team_members').delete().eq('id', id);
+  if (error) throw error;
 }
 
 // ============================================
@@ -535,7 +1080,8 @@ export interface AssignTeamToClientInput {
 }
 
 export async function assignTeamToClient(input: AssignTeamToClientInput) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('client_assignments')
     .insert({
       ...input,
@@ -550,7 +1096,8 @@ export async function assignTeamToClient(input: AssignTeamToClientInput) {
 }
 
 export async function removeClientAssignment(assignmentId: string) {
-  const { error } = await supabase
+  const sb = requireSupabaseClient();
+  const { error } = await sb
     .from('client_assignments')
     .delete()
     .eq('id', assignmentId);
@@ -559,7 +1106,8 @@ export async function removeClientAssignment(assignmentId: string) {
 }
 
 export async function getClientAssignments(clientId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('client_assignments')
     .select('*, team_members:team_member_id(id, name, avatar, email, primary_role, current_load, status)')
     .eq('client_id', clientId)
@@ -570,7 +1118,8 @@ export async function getClientAssignments(clientId: string) {
 }
 
 export async function getAssignmentsByTeamMember(teamMemberId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('client_assignments')
     .select('*, clients:client_id(id, business_name, category, status, health_score)')
     .eq('team_member_id', teamMemberId)
@@ -581,7 +1130,8 @@ export async function getAssignmentsByTeamMember(teamMemberId: string) {
 }
 
 export async function getAvailableTeamMembers(tenantId?: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('team_members')
     .select(`
       *,
@@ -596,7 +1146,8 @@ export async function getAvailableTeamMembers(tenantId?: string) {
 }
 
 export async function getDefaultAssignmentRules(category: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('default_assignment_rules')
     .select('*')
     .eq('tenant_id', DEMO_TENANT_ID)
@@ -606,7 +1157,7 @@ export async function getDefaultAssignmentRules(category: string) {
   if (error && error.code !== 'PGRST116') throw error;
 
   if (!data) {
-    const { data: fallback } = await supabase
+    const { data: fallback } = await sb
       .from('default_assignment_rules')
       .select('*')
       .eq('tenant_id', DEMO_TENANT_ID)
@@ -622,7 +1173,8 @@ export async function addClientToWorkspace(
   name: string,
   role: 'client_admin' | 'client_member'
 ) {
-  const { data: workspace } = await supabase
+  const sb = requireSupabaseClient();
+  const { data: workspace } = await sb
     .from('workspaces')
     .select('id')
     .eq('client_id', clientId)
@@ -630,7 +1182,7 @@ export async function addClientToWorkspace(
 
   if (!workspace) throw new Error('Workspace not found for this client');
 
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from('workspace_members')
     .insert({
       workspace_id: workspace.id,
@@ -651,7 +1203,8 @@ export async function addClientToWorkspace(
 // ============================================
 
 export async function assignTeamMemberToDeliverable(deliverableId: string, teamMemberId: string) {
-  const { data, error } = await supabase
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
     .from('deliverables')
     .update({
       assigned_to: teamMemberId,
@@ -666,11 +1219,10 @@ export async function assignTeamMemberToDeliverable(deliverableId: string, teamM
   if (error) throw error;
 
   // Update team member load
-  await supabase.rpc('increment_team_member_load', { member_id: teamMemberId }).catch(() => {
+  await sb.rpc('increment_team_member_load', { member_id: teamMemberId }).catch(() => {
     // fallback: manual increment
-    supabase
-      .from('team_members')
-      .update({ active_deliverables: supabase.rpc ? undefined : 1 })
+    sb.from('team_members')
+      .update({ active_deliverables: 1 })
       .eq('id', teamMemberId);
   });
 
@@ -701,7 +1253,8 @@ export function subscribeToTable(
     config.filter = filter;
   }
 
-  const channel = supabase
+  const sb = requireSupabaseClient();
+  const channel = sb
     .channel(`realtime-${table}-${filter || 'all'}`)
     .on('postgres_changes', config, (payload) => {
       callback({
@@ -713,7 +1266,8 @@ export function subscribeToTable(
     .subscribe();
 
   return () => {
-    supabase.removeChannel(channel);
+    const sb = requireSupabaseClient();
+    sb.removeChannel(channel);
   };
 }
 
@@ -722,6 +1276,7 @@ export function subscribeToTable(
 // ============================================
 
 export async function getSystemHealth() {
+  const sb = requireSupabaseClient();
   const [
     clientsRes,
     deliverablesRes,
@@ -730,12 +1285,12 @@ export async function getSystemHealth() {
     packagesRes,
     walletRes,
   ] = await Promise.all([
-    supabase.from('clients').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
-    supabase.from('deliverables').select('id, status').eq('tenant_id', DEMO_TENANT_ID),
-    supabase.from('messages').select('id', { count: 'exact', head: true }),
-    supabase.from('campaigns').select('id, status').eq('tenant_id', DEMO_TENANT_ID),
-    supabase.from('package_usage').select('*, client_packages!inner(clients!inner(tenant_id))'),
-    supabase.from('client_wallets').select('balance, clients!inner(tenant_id)'),
+    sb.from('clients').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
+    sb.from('deliverables').select('id, status').eq('tenant_id', DEMO_TENANT_ID),
+    sb.from('messages').select('id', { count: 'exact', head: true }),
+    sb.from('campaigns').select('id, status').eq('tenant_id', DEMO_TENANT_ID),
+    sb.from('package_usage').select('*, client_packages!inner(clients!inner(tenant_id))'),
+    sb.from('client_wallets').select('balance, clients!inner(tenant_id)'),
   ]);
 
   const deliverables = deliverablesRes.data || [];
@@ -761,7 +1316,8 @@ export async function getSystemHealth() {
 // ============================================
 
 export async function refreshDashboardMetrics() {
-  const { error } = await supabase.rpc('refresh_dashboard_metrics', {
+  const sb = requireSupabaseClient();
+  const { error } = await sb.rpc('refresh_dashboard_metrics', {
     p_tenant_id: DEMO_TENANT_ID,
   });
 

@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/lib/auth';
+import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { updateDeliverableStatus } from '@/lib/data-service';
 import {
   ClipboardList,
   Clock,
@@ -14,6 +17,7 @@ import {
   ChevronRight,
   X,
   ArrowLeft,
+  Loader2,
 } from 'lucide-react';
 
 type TaskStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'completed';
@@ -29,7 +33,7 @@ interface Task {
   description: string;
 }
 
-const mockTasks: Task[] = [
+const fallbackTasks: Task[] = [
   {
     id: '1',
     title: 'Customer Frame Design — Royal Enfield Classic',
@@ -90,6 +94,37 @@ const mockTasks: Task[] = [
   },
 ];
 
+// Map DB status to UI status
+function mapDeliverableStatus(dbStatus: string): TaskStatus {
+  const map: Record<string, TaskStatus> = {
+    pending: 'pending',
+    'in-progress': 'in_progress',
+    review: 'waiting_approval',
+    approved: 'completed',
+    delivered: 'completed',
+    cancelled: 'completed',
+  };
+  return map[dbStatus] || 'pending';
+}
+
+// Map deliverable type to team name
+function getTeamName(type: string): string {
+  const map: Record<string, string> = {
+    photo_graphics: 'Creative Team',
+    video_edit: 'Video Production',
+    motion_graphics: 'Video Production',
+    reels: 'Video Production',
+    copywriting: 'Content & Copy',
+    customer_frames: 'Creative Team',
+    service_frames: 'Creative Team',
+    boost_campaign: 'Media Buying',
+    ads_management: 'Media Buying',
+    seo: 'Strategy & Research',
+    social_media_posts: 'Content & Copy',
+  };
+  return map[type] || 'Team';
+}
+
 const statusConfig: Record<TaskStatus, { label: string; color: string; icon: typeof Clock; bg: string }> = {
   pending: { label: 'Pending', color: '#FFB800', icon: Clock, bg: 'rgba(255,184,0,0.1)' },
   in_progress: { label: 'In Progress', color: '#00D9FF', icon: AlertCircle, bg: 'rgba(0,217,255,0.1)' },
@@ -106,14 +141,101 @@ const typeIcons: Record<string, typeof Image> = {
 const statusOrder: TaskStatus[] = ['waiting_approval', 'pending', 'in_progress', 'completed'];
 
 export default function ClientTasks() {
+  const { user } = useAuth();
+  const [tasks, setTasks] = useState<Task[]>(fallbackTasks);
+  const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<TaskStatus | 'all'>('all');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const filtered = activeFilter === 'all' ? mockTasks : mockTasks.filter((t) => t.status === activeFilter);
+  const fetchTasks = useCallback(async () => {
+    try {
+      const clientId = user?.client_id;
+      if (!clientId) { setLoading(false); return; }
+
+      const { data: result, error: err } = await supabase
+        .from('deliverables')
+        .select('*, team_members:assigned_to(name)')
+        .eq('client_id', clientId)
+        .eq('tenant_id', DEMO_TENANT_ID)
+        .order('created_at', { ascending: false });
+
+      if (err) throw err;
+
+      if (result && result.length > 0) {
+        const mapped: Task[] = result.map((r: Record<string, unknown>) => {
+          const teamMember = r.team_members as Record<string, unknown> | null;
+          const deadline = r.deadline ? new Date(r.deadline as string).toISOString().split('T')[0] : '';
+          return {
+            id: r.id as string,
+            title: r.title as string,
+            type: (r.deliverable_type as string) || 'photo_graphics',
+            status: mapDeliverableStatus((r.status as string) || 'pending'),
+            dueDate: deadline,
+            assignedTeam: teamMember?.name as string || getTeamName((r.deliverable_type as string) || ''),
+            description: (r.notes as string) || r.title as string,
+          };
+        });
+        setTasks(mapped);
+      }
+    } catch (e) {
+      console.error('Failed to fetch tasks:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.client_id]);
+
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  // Real-time subscription for deliverables
+  useEffect(() => {
+    const clientId = user?.client_id;
+    if (!clientId) return;
+
+    const channel = supabase
+      .channel(`client-tasks-${clientId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'deliverables',
+        filter: `client_id=eq.${clientId}`,
+      }, () => { fetchTasks(); })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.client_id, fetchTasks]);
+
+  const handleApprove = useCallback(async (task: Task) => {
+    setActionLoading(true);
+    try {
+      await updateDeliverableStatus(task.id, 'approved', user?.id);
+      setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, status: 'completed' as TaskStatus } : t));
+      setSelectedTask(null);
+    } catch (e) {
+      console.error('Failed to approve:', e);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [user?.id]);
+
+  const handleRequestRevision = useCallback(async (task: Task) => {
+    setActionLoading(true);
+    try {
+      await updateDeliverableStatus(task.id, 'in-progress');
+      setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, status: 'in_progress' as TaskStatus } : t));
+      setSelectedTask(null);
+    } catch (e) {
+      console.error('Failed to request revision:', e);
+    } finally {
+      setActionLoading(false);
+    }
+  }, []);
+
+  const filtered = activeFilter === 'all' ? tasks : tasks.filter((t) => t.status === activeFilter);
 
   const grouped = statusOrder.reduce<Record<string, Task[]>>((acc, status) => {
-    const tasks = filtered.filter((t) => t.status === status);
-    if (tasks.length > 0) acc[status] = tasks;
+    const items = filtered.filter((t) => t.status === status);
+    if (items.length > 0) acc[status] = items;
     return acc;
   }, {});
 
@@ -124,9 +246,10 @@ export default function ClientTasks() {
         <h1 className="font-display font-extrabold text-lg text-white flex items-center gap-2">
           <ClipboardList className="w-5 h-5 text-titan-cyan" />
           Tasks
+          {loading && <Loader2 className="w-3.5 h-3.5 text-titan-cyan/40 animate-spin" />}
         </h1>
         <p className="font-mono text-[10px] text-white/30 mt-0.5">
-          {mockTasks.length} deliverables • {mockTasks.filter((t) => t.status !== 'completed').length} active
+          {tasks.length} deliverables • {tasks.filter((t) => t.status !== 'completed').length} active
         </p>
       </div>
 
@@ -282,11 +405,19 @@ export default function ClientTasks() {
 
                 {selectedTask.status === 'waiting_approval' && (
                   <div className="flex gap-3">
-                    <button className="flex-1 py-2.5 rounded-xl bg-titan-lime/15 border border-titan-lime/30 font-display font-bold text-xs text-titan-lime active:scale-[0.97] transition-transform">
-                      ✓ Approve
+                    <button
+                      onClick={() => handleApprove(selectedTask)}
+                      disabled={actionLoading}
+                      className="flex-1 py-2.5 rounded-xl bg-titan-lime/15 border border-titan-lime/30 font-display font-bold text-xs text-titan-lime active:scale-[0.97] transition-transform disabled:opacity-50"
+                    >
+                      {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '✓ Approve'}
                     </button>
-                    <button className="flex-1 py-2.5 rounded-xl bg-titan-magenta/15 border border-titan-magenta/30 font-display font-bold text-xs text-titan-magenta active:scale-[0.97] transition-transform">
-                      ✕ Request Revision
+                    <button
+                      onClick={() => handleRequestRevision(selectedTask)}
+                      disabled={actionLoading}
+                      className="flex-1 py-2.5 rounded-xl bg-titan-magenta/15 border border-titan-magenta/30 font-display font-bold text-xs text-titan-magenta active:scale-[0.97] transition-transform disabled:opacity-50"
+                    >
+                      {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '✕ Request Revision'}
                     </button>
                   </div>
                 )}

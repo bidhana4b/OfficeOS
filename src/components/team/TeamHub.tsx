@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users,
   Search,
+  UserPlus,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TeamDashboardCards from './TeamDashboardCards';
@@ -12,6 +15,7 @@ import TeamMemberProfile from './TeamMemberProfile';
 import { teamsData as mockTeamsData, teamMembersData as mockTeamMembersData, getMembersForTeam } from './mock-data';
 import type { TeamCategory, TeamMember, TeamViewMode } from './types';
 import { useTeams, useTeamMembers, useTeamDashboardSummary } from '@/hooks/useTeam';
+import { createTeamMember } from '@/lib/data-service';
 
 export default function TeamHub() {
   const teamsQuery = useTeams();
@@ -24,6 +28,14 @@ export default function TeamHub() {
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [viewMode, setViewMode] = useState<TeamViewMode>('grid');
   const [globalSearch, setGlobalSearch] = useState('');
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: '',
+    email: '',
+    primary_role: '',
+    work_capacity_hours: 8,
+  });
 
   const handleSelectTeam = useCallback((category: TeamCategory) => {
     setSelectedTeam(category);
@@ -46,6 +58,51 @@ export default function TeamHub() {
     setSelectedMember(null);
     setViewMode('list');
   }, []);
+
+  const handleAddMember = useCallback(async () => {
+    if (!addForm.name || !addForm.email || !addForm.primary_role) return;
+    setAddingMember(true);
+    try {
+      // Find matching team IDs based on role
+      const roleToTeamCategory: Record<string, string[]> = {
+        'Graphic Designer': ['creative'],
+        'Video Editor': ['video-production'],
+        'Media Buyer': ['media-buying'],
+        'Copywriter': ['content-copy'],
+        'Account Manager': ['client-management'],
+        'SEO Specialist': ['strategy-research'],
+        'Social Media Manager': ['content-copy'],
+        'Developer': ['tech-development'],
+        'AI Engineer': ['automation-ai'],
+        'Finance Manager': ['accounts-finance'],
+        'HR Manager': ['hr-admin'],
+      };
+      const matchingCategories = roleToTeamCategory[addForm.primary_role] || [];
+      const matchingTeamIds = teamsData
+        .filter((t) => matchingCategories.includes(t.category))
+        .map((t) => t.id);
+
+      await createTeamMember({
+        name: addForm.name,
+        email: addForm.email,
+        primary_role: addForm.primary_role,
+        work_capacity_hours: addForm.work_capacity_hours,
+        team_ids: matchingTeamIds,
+      });
+
+      // Refresh data
+      membersQuery.refetch();
+      teamsQuery.refetch();
+
+      // Reset form
+      setAddForm({ name: '', email: '', primary_role: '', work_capacity_hours: 8 });
+      setShowAddDialog(false);
+    } catch (err) {
+      console.error('Failed to add team member:', err);
+    } finally {
+      setAddingMember(false);
+    }
+  }, [addForm, teamsData, membersQuery, teamsQuery]);
 
   const teamMembers = useMemo(() => {
     if (!selectedTeam) return [];
@@ -105,6 +162,13 @@ export default function TeamHub() {
             transition={{ delay: 0.1 }}
             className="hidden lg:flex items-center gap-4"
           >
+            <button
+              onClick={() => setShowAddDialog(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-titan-cyan/10 border border-titan-cyan/20 hover:bg-titan-cyan/20 transition-colors cursor-pointer"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-titan-cyan" />
+              <span className="font-mono-data text-[10px] text-titan-cyan font-medium">+ Add Member</span>
+            </button>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
               <div className="w-1.5 h-1.5 rounded-full bg-titan-lime animate-pulse" />
               <span className="font-mono-data text-[10px] text-white/40">{onlineCount} Online</span>
@@ -258,6 +322,140 @@ export default function TeamHub() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Add Team Member Dialog */}
+      <AnimatePresence>
+        {showAddDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowAddDialog(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md mx-4 rounded-2xl bg-[#1A1D2E]/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl overflow-hidden"
+            >
+              {/* Dialog Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-titan-cyan/10 border border-titan-cyan/20">
+                    <UserPlus className="w-4 h-4 text-titan-cyan" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-white">Add Team Member</h3>
+                    <p className="font-mono-data text-[10px] text-white/30">Register a new team member</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAddDialog(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors"
+                >
+                  <X className="w-4 h-4 text-white/40" />
+                </button>
+              </div>
+
+              {/* Dialog Body */}
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={addForm.name}
+                    onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Rafiq Ahmed"
+                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/20 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={addForm.email}
+                    onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="e.g. rafiq@agency.com"
+                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/20 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
+                    Primary Role *
+                  </label>
+                  <select
+                    value={addForm.primary_role}
+                    onChange={(e) => setAddForm((f) => ({ ...f, primary_role: e.target.value }))}
+                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors appearance-none cursor-pointer"
+                  >
+                    <option value="" className="bg-[#1A1D2E]">Select role...</option>
+                    <option value="Graphic Designer" className="bg-[#1A1D2E]">Graphic Designer</option>
+                    <option value="Video Editor" className="bg-[#1A1D2E]">Video Editor</option>
+                    <option value="Media Buyer" className="bg-[#1A1D2E]">Media Buyer</option>
+                    <option value="Copywriter" className="bg-[#1A1D2E]">Copywriter</option>
+                    <option value="Account Manager" className="bg-[#1A1D2E]">Account Manager</option>
+                    <option value="SEO Specialist" className="bg-[#1A1D2E]">SEO Specialist</option>
+                    <option value="Social Media Manager" className="bg-[#1A1D2E]">Social Media Manager</option>
+                    <option value="Developer" className="bg-[#1A1D2E]">Developer</option>
+                    <option value="AI Engineer" className="bg-[#1A1D2E]">AI Engineer</option>
+                    <option value="Finance Manager" className="bg-[#1A1D2E]">Finance Manager</option>
+                    <option value="HR Manager" className="bg-[#1A1D2E]">HR Manager</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
+                    Work Capacity (hours/day)
+                  </label>
+                  <input
+                    type="number"
+                    value={addForm.work_capacity_hours}
+                    onChange={(e) => setAddForm((f) => ({ ...f, work_capacity_hours: Number(e.target.value) || 8 }))}
+                    min={1}
+                    max={12}
+                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Dialog Footer */}
+              <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/[0.06]">
+                <button
+                  onClick={() => setShowAddDialog(false)}
+                  className="px-4 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/60 font-mono-data text-xs hover:bg-white/[0.08] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddMember}
+                  disabled={addingMember || !addForm.name || !addForm.email || !addForm.primary_role}
+                  className={cn(
+                    'flex items-center gap-2 px-4 py-2 rounded-lg font-mono-data text-xs font-medium transition-all',
+                    addingMember || !addForm.name || !addForm.email || !addForm.primary_role
+                      ? 'bg-white/[0.04] text-white/20 cursor-not-allowed'
+                      : 'bg-titan-cyan/20 text-titan-cyan border border-titan-cyan/30 hover:bg-titan-cyan/30 shadow-[0_0_12px_rgba(0,217,255,0.1)]'
+                  )}
+                >
+                  {addingMember ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <UserPlus className="w-3.5 h-3.5" />
+                  )}
+                  {addingMember ? 'Adding...' : 'Add Member'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

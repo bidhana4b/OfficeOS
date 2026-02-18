@@ -16,7 +16,24 @@ import {
 import type { Workspace, Channel, Message, BoostWizardData } from './types';
 import { useWorkspaces, useMessages } from '@/hooks/useMessaging';
 import { useAuth } from '@/lib/auth';
-import { sendMessage as sendMessageToDb, subscribeToMessages } from '@/lib/data-service';
+import {
+  sendMessage,
+  subscribeToMessages,
+  addMessageReaction,
+  removeMessageReaction,
+  createCampaign,
+  debitWallet,
+  createDeliverable,
+  editMessage,
+  deleteMessage,
+  pinMessage,
+  unpinMessage,
+  saveMessage,
+  unsaveMessage,
+  forwardMessage,
+  uploadMessageFile,
+  addMessageFile,
+} from '@/lib/data-service';
 
 export default function MessagingHub() {
   const { user } = useAuth();
@@ -127,7 +144,7 @@ export default function MessagingHub() {
   }, []);
 
   const handleSendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, files?: File[], replyTo?: Message, voiceBlob?: Blob) => {
       if (!activeChannel) return;
 
       // Optimistic UI update
@@ -145,6 +162,12 @@ export default function MessagingHub() {
         status: 'sending',
         reactions: [],
         files: [],
+        replyTo: replyTo ? {
+          id: replyTo.id,
+          senderName: replyTo.sender.name,
+          content: replyTo.content,
+        } : undefined,
+        messageType: voiceBlob ? 'voice' : 'text',
       };
 
       setMessages((prev) => ({
@@ -154,14 +177,50 @@ export default function MessagingHub() {
 
       try {
         // Send to Supabase
-        const result = await sendMessageToDb({
+        const result = await sendMessage({
           channel_id: activeChannel.id,
           sender_id: currentUser.id,
           sender_name: currentUser.name,
           sender_avatar: currentUser.avatar,
           sender_role: currentUser.role,
           content,
+          reply_to_id: replyTo?.id,
+          reply_to_sender: replyTo?.sender.name,
+          reply_to_content: replyTo?.content,
         });
+
+        // Upload files if any
+        if (files && files.length > 0) {
+          for (const file of files) {
+            try {
+              const uploaded = await uploadMessageFile(file, activeChannel.id);
+              await addMessageFile(result.id, {
+                name: uploaded.name,
+                type: uploaded.mimeType,
+                url: uploaded.url,
+                size: uploaded.size,
+              });
+            } catch (fileErr) {
+              console.warn('File upload failed:', fileErr);
+            }
+          }
+        }
+
+        // Upload voice if any
+        if (voiceBlob) {
+          try {
+            const voiceFile = new File([voiceBlob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+            const uploaded = await uploadMessageFile(voiceFile, activeChannel.id);
+            await addMessageFile(result.id, {
+              name: uploaded.name,
+              type: 'audio/webm',
+              url: uploaded.url,
+              size: uploaded.size,
+            });
+          } catch (voiceErr) {
+            console.warn('Voice upload failed:', voiceErr);
+          }
+        }
 
         // Replace optimistic message with real one
         setMessages((prev) => ({
@@ -182,7 +241,6 @@ export default function MessagingHub() {
         }, 500);
       } catch (err) {
         console.error('Failed to send message:', err);
-        // Mark as failed
         setMessages((prev) => ({
           ...prev,
           [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
@@ -195,9 +253,10 @@ export default function MessagingHub() {
   );
 
   const handleReaction = useCallback(
-    (messageId: string, emoji: string) => {
+    async (messageId: string, emoji: string) => {
       if (!activeChannel) return;
 
+      // Optimistic UI update first
       setMessages((prev) => ({
         ...prev,
         [activeChannel.id]: (prev[activeChannel.id] || []).map((m) => {
@@ -239,19 +298,38 @@ export default function MessagingHub() {
           }
         }),
       }));
+
+      // Persist to DB
+      try {
+        const message = (messages[activeChannel.id] || []).find((m) => m.id === messageId);
+        const existingReaction = message?.reactions.find((r) => r.emoji === emoji);
+        const isRemoving = existingReaction?.users.includes(currentUser.id);
+
+        if (isRemoving) {
+          await removeMessageReaction(messageId, emoji, currentUser.id);
+        } else {
+          await addMessageReaction(messageId, emoji, currentUser.id);
+        }
+      } catch (err) {
+        console.error('Failed to persist reaction:', err);
+      }
     },
-    [activeChannel, currentUser]
+    [activeChannel, currentUser, messages]
   );
 
   const handleBoostSubmit = useCallback(
-    (data: BoostWizardData) => {
+    async (data: BoostWizardData) => {
       if (!activeChannel || !activeWorkspace) return;
 
+      const durationMultiplier = data.duration === '3d' ? 3 : data.duration === '7d' ? 7 : data.duration === '14d' ? 14 : 30;
+      const totalBudget = data.budget * durationMultiplier;
+
+      // Create system message (optimistic UI)
       const systemMessage: Message = {
         id: `msg-boost-${Date.now()}`,
         channelId: activeChannel.id,
         sender: { id: 'system', name: 'TITAN AI', avatar: 'AI', role: 'admin', status: 'online' },
-        content: `🚀 New Boost Campaign Created!\n\nPlatform: ${data.platform}\nGoal: ${data.goal}\nDaily Budget: $${data.budget}\nDuration: ${data.duration}\nTotal Budget: $${data.budget * (data.duration === '3d' ? 3 : data.duration === '7d' ? 7 : data.duration === '14d' ? 14 : 30)}\n\nMedia Buyer has been notified. Wallet deducted.`,
+        content: `🚀 New Boost Campaign Created!\n\nPlatform: ${data.platform}\nGoal: ${data.goal}\nDaily Budget: $${data.budget}\nDuration: ${data.duration}\nTotal Budget: $${totalBudget}\n\nMedia Buyer has been notified. Wallet deducted.`,
         timestamp: new Date().toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit',
@@ -276,18 +354,66 @@ export default function MessagingHub() {
       }));
 
       setBoostWizardOpen(false);
+
+      // Persist to DB: create campaign + debit wallet + send system message
+      try {
+        // Find client_id from workspace
+        const clientId = (activeWorkspace as any).clientId || activeWorkspace.id;
+
+        // 1. Create campaign in DB
+        const campaign = await createCampaign({
+          client_id: clientId,
+          name: `${data.platform} - ${data.goal} Campaign`,
+          platform: data.platform,
+          budget: totalBudget,
+          goal: data.goal,
+          target_audience: data.targetAudience,
+          duration: data.duration,
+        });
+
+        // 2. Try to debit wallet (may fail if insufficient balance)
+        try {
+          await debitWallet(
+            clientId,
+            totalBudget,
+            `Boost Campaign: ${data.platform} - ${data.goal}`,
+            'campaign',
+            campaign.id
+          );
+        } catch (walletErr) {
+          console.warn('Wallet debit skipped (may be insufficient):', walletErr);
+        }
+
+        // 3. Send the system message to DB
+        await sendMessage({
+          channel_id: activeChannel.id,
+          sender_id: 'system',
+          sender_name: 'TITAN AI',
+          sender_avatar: 'AI',
+          sender_role: 'admin',
+          content: systemMessage.content,
+        });
+
+        console.log('✅ Boost campaign created in DB:', campaign.id);
+      } catch (err) {
+        console.error('Failed to persist boost campaign:', err);
+      }
     },
     [activeChannel, activeWorkspace]
   );
 
   const handleCreateDeliverable = useCallback(
-    (type: string) => {
-      if (!activeChannel) return;
+    async (type: string) => {
+      if (!activeChannel || !activeWorkspace) return;
 
       const typeLabels: Record<string, string> = {
         design: 'Design Task',
         video: 'Video Production',
         approval: 'Approval Request',
+        content: 'Content Creation',
+        seo: 'SEO Task',
+        ads: 'Ad Creative',
+        social: 'Social Media Post',
       };
 
       const systemMessage: Message = {
@@ -317,8 +443,181 @@ export default function MessagingHub() {
         ...prev,
         [activeChannel.id]: [...(prev[activeChannel.id] || []), systemMessage],
       }));
+
+      // Persist to DB: create deliverable + send system message
+      try {
+        const clientId = (activeWorkspace as any).clientId || activeWorkspace.id;
+
+        // 1. Create deliverable in DB
+        const deliverable = await createDeliverable({
+          client_id: clientId,
+          title: `${typeLabels[type] || 'Deliverable'} — ${activeWorkspace.clientName}`,
+          deliverable_type: type,
+          status: 'pending',
+          quantity: 1,
+          notes: `Created from messaging channel: ${activeChannel.name}`,
+        });
+
+        // 2. Send system message to DB
+        await sendMessage({
+          channel_id: activeChannel.id,
+          sender_id: 'system',
+          sender_name: 'TITAN AI',
+          sender_avatar: 'AI',
+          sender_role: 'admin',
+          content: systemMessage.content,
+        });
+
+        console.log('✅ Deliverable created in DB:', deliverable.id);
+      } catch (err) {
+        console.error('Failed to persist deliverable:', err);
+      }
     },
     [activeChannel, activeWorkspace]
+  );
+
+  // ===== EDIT MESSAGE =====
+  const handleEditMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      if (!activeChannel) return;
+      // Optimistic
+      setMessages((prev) => ({
+        ...prev,
+        [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
+          m.id === messageId ? { ...m, content: newContent, isEdited: true } : m
+        ),
+      }));
+      try {
+        await editMessage(messageId, newContent);
+      } catch (err) {
+        console.error('Failed to edit message:', err);
+      }
+    },
+    [activeChannel]
+  );
+
+  // ===== DELETE MESSAGE =====
+  const handleDeleteMessage = useCallback(
+    async (messageId: string, forEveryone: boolean) => {
+      if (!activeChannel) return;
+      // Optimistic
+      setMessages((prev) => ({
+        ...prev,
+        [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                isDeleted: true,
+                deletedForEveryone: forEveryone,
+                content: forEveryone ? '🗑️ This message was deleted' : m.content,
+              }
+            : m
+        ),
+      }));
+      try {
+        await deleteMessage(messageId, forEveryone);
+      } catch (err) {
+        console.error('Failed to delete message:', err);
+      }
+    },
+    [activeChannel]
+  );
+
+  // ===== PIN / UNPIN =====
+  const handlePinMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeChannel) return;
+      setMessages((prev) => ({
+        ...prev,
+        [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
+          m.id === messageId ? { ...m, isPinned: true } : m
+        ),
+      }));
+      try {
+        await pinMessage(messageId, activeChannel.id, currentUser.id);
+      } catch (err) {
+        console.error('Failed to pin message:', err);
+      }
+    },
+    [activeChannel, currentUser]
+  );
+
+  const handleUnpinMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeChannel) return;
+      setMessages((prev) => ({
+        ...prev,
+        [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
+          m.id === messageId ? { ...m, isPinned: false } : m
+        ),
+      }));
+      try {
+        await unpinMessage(messageId);
+      } catch (err) {
+        console.error('Failed to unpin message:', err);
+      }
+    },
+    [activeChannel]
+  );
+
+  // ===== SAVE / UNSAVE =====
+  const handleSaveMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeChannel) return;
+      setMessages((prev) => ({
+        ...prev,
+        [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
+          m.id === messageId ? { ...m, isSaved: true } : m
+        ),
+      }));
+      try {
+        await saveMessage(messageId, currentUser.id);
+      } catch (err) {
+        console.error('Failed to save message:', err);
+      }
+    },
+    [activeChannel, currentUser]
+  );
+
+  const handleUnsaveMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeChannel) return;
+      setMessages((prev) => ({
+        ...prev,
+        [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
+          m.id === messageId ? { ...m, isSaved: false } : m
+        ),
+      }));
+      try {
+        await unsaveMessage(messageId, currentUser.id);
+      } catch (err) {
+        console.error('Failed to unsave message:', err);
+      }
+    },
+    [activeChannel, currentUser]
+  );
+
+  // ===== FORWARD =====
+  const handleForwardMessage = useCallback(
+    async (messageId: string, targetChannelId: string) => {
+      if (!activeChannel || !activeWorkspace) return;
+      const targetChannel = activeWorkspace.channels.find((ch) => ch.id === targetChannelId);
+      try {
+        await forwardMessage(
+          messageId,
+          targetChannelId,
+          currentUser.id,
+          currentUser.name,
+          currentUser.avatar,
+          currentUser.role,
+          activeChannel.name
+        );
+        console.log('✅ Message forwarded to #' + (targetChannel?.name || targetChannelId));
+      } catch (err) {
+        console.error('Failed to forward message:', err);
+      }
+    },
+    [activeChannel, activeWorkspace, currentUser]
   );
 
   const currentMessages = activeChannel ? messages[activeChannel.id] || [] : [];
@@ -393,6 +692,13 @@ export default function MessagingHub() {
               onReaction={handleReaction}
               onOpenBoostWizard={() => setBoostWizardOpen(true)}
               onCreateDeliverable={handleCreateDeliverable}
+              onEditMessage={handleEditMessage}
+              onDeleteMessage={handleDeleteMessage}
+              onPinMessage={handlePinMessage}
+              onUnpinMessage={handleUnpinMessage}
+              onForwardMessage={handleForwardMessage}
+              onSaveMessage={handleSaveMessage}
+              onUnsaveMessage={handleUnsaveMessage}
             />
           </motion.div>
 
