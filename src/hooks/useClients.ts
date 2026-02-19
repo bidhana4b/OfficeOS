@@ -8,6 +8,7 @@ export function useClients() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -165,6 +166,7 @@ export function useClientActivities(clientId?: string) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       let query = supabase
@@ -209,6 +211,7 @@ export function useClientPerformance(clientId: string) {
 
   const fetchData = useCallback(async () => {
     if (!clientId) return;
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase

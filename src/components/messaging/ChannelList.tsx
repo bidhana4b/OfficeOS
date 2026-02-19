@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Hash,
@@ -10,9 +10,14 @@ import {
   Settings,
   Users,
   ChevronLeft,
+  UserPlus,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Channel, Workspace, User } from './types';
+import CreateChannelModal from './CreateChannelModal';
+import AddMemberModal from './AddMemberModal';
+import QuickActionsManager from './QuickActionsManager';
 
 interface ChannelListProps {
   workspace: Workspace;
@@ -20,6 +25,8 @@ interface ChannelListProps {
   onSelectChannel: (channel: Channel) => void;
   onBack: () => void;
   currentUserRole: User['role'];
+  currentUserId: string;
+  onChannelsUpdated?: () => void;
 }
 
 const channelIcons: Record<string, React.ElementType> = {
@@ -45,7 +52,14 @@ export default function ChannelList({
   onSelectChannel,
   onBack,
   currentUserRole,
+  currentUserId,
+  onChannelsUpdated,
 }: ChannelListProps) {
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [selectedChannelForMembers, setSelectedChannelForMembers] = useState<string | null>(null);
+
   const visibleChannels = workspace.channels.filter((ch) => {
     // Internal channels only visible to non-client roles
     if (ch.type === 'internal' && currentUserRole === 'client') return false;
@@ -54,6 +68,19 @@ export default function ChannelList({
 
   const standardChannels = visibleChannels.filter((ch) => ch.type !== 'custom');
   const customChannels = visibleChannels.filter((ch) => ch.type === 'custom');
+
+  const handleAddMembersClick = (channelId: string) => {
+    setSelectedChannelForMembers(channelId);
+    setAddMemberOpen(true);
+  };
+
+  const handleChannelCreated = () => {
+    onChannelsUpdated?.();
+  };
+
+  const handleMembersUpdated = () => {
+    onChannelsUpdated?.();
+  };
 
   return (
     <div className="h-full flex flex-col bg-[#0D1029]/80 backdrop-blur-xl border-r border-white/[0.06] w-[220px]">
@@ -71,6 +98,13 @@ export default function ChannelList({
               {workspace.clientName}
             </h3>
           </div>
+          <button 
+            onClick={() => setQuickActionsOpen(true)}
+            className="p-1 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all"
+            title="Quick Actions Manager"
+          >
+            <Zap className="w-3.5 h-3.5" />
+          </button>
           <button className="p-1 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all">
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -141,7 +175,11 @@ export default function ChannelList({
             <span className="font-mono-data text-[9px] text-white/20 uppercase tracking-wider">
               Channels
             </span>
-            <button className="p-0.5 rounded hover:bg-white/[0.06] text-white/20 hover:text-white/50 transition-all">
+            <button 
+              onClick={() => setCreateChannelOpen(true)}
+              className="p-0.5 rounded hover:bg-white/[0.06] text-white/20 hover:text-white/50 transition-all"
+              title="Create Channel"
+            >
               <Plus className="w-3 h-3" />
             </button>
           </div>
@@ -225,13 +263,47 @@ export default function ChannelList({
 
       {/* Members Section */}
       <div className="px-3 py-2 border-t border-white/[0.06]">
-        <button className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] text-white/30 hover:text-white/60 transition-all">
+        <button 
+          onClick={() => activeChannelId && handleAddMembersClick(activeChannelId)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] text-white/30 hover:text-white/60 transition-all"
+        >
           <Users className="w-3.5 h-3.5" />
           <span className="font-mono-data text-[10px]">
             {workspace.members.length} members
           </span>
+          <UserPlus className="w-3 h-3 ml-auto" />
         </button>
       </div>
+
+      {/* Modals */}
+      <CreateChannelModal
+        open={createChannelOpen}
+        onClose={() => setCreateChannelOpen(false)}
+        workspaceId={workspace.id}
+        currentUserId={currentUserId}
+        onChannelCreated={handleChannelCreated}
+      />
+
+      {selectedChannelForMembers && (
+        <AddMemberModal
+          open={addMemberOpen}
+          onClose={() => {
+            setAddMemberOpen(false);
+            setSelectedChannelForMembers(null);
+          }}
+          channelId={selectedChannelForMembers}
+          workspaceId={workspace.id}
+          currentUserId={currentUserId}
+          onMembersUpdated={handleMembersUpdated}
+        />
+      )}
+
+      <QuickActionsManager
+        open={quickActionsOpen}
+        onClose={() => setQuickActionsOpen(false)}
+        userRole={currentUserRole}
+        onActionsUpdated={handleChannelCreated}
+      />
     </div>
   );
 }

@@ -49,6 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
+      if (!supabase) {
+        setError('Database connection not available. Check environment variables.');
+        setLoading(false);
+        return false;
+      }
+
       const { data, error: queryError } = await supabase
         .from('demo_users')
         .select('*')

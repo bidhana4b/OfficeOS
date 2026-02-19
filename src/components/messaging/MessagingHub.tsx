@@ -16,6 +16,7 @@ import {
 import type { Workspace, Channel, Message, BoostWizardData } from './types';
 import { useWorkspaces, useMessages } from '@/hooks/useMessaging';
 import { useAuth } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import {
   sendMessage,
   subscribeToMessages,
@@ -109,6 +110,9 @@ export default function MessagingHub() {
           reactions: [],
           files: [],
           isSystemMessage: (newMsg.is_system_message as boolean) || false,
+          messageType: (newMsg.message_type as Message['messageType']) || 'text',
+          voiceUrl: newMsg.voice_url as string | undefined,
+          voiceDuration: newMsg.voice_duration as number | undefined,
         };
 
         // Only add if not already in messages (avoid duplicates with optimistic update)
@@ -121,10 +125,98 @@ export default function MessagingHub() {
           };
         });
       }
+
+      // Handle UPDATE events (for voice URL updates)
+      if (payload.eventType === 'UPDATE') {
+        const updatedMsg = payload.new;
+        setMessages((prev) => {
+          const channelMessages = prev[activeChannel.id] || [];
+          return {
+            ...prev,
+            [activeChannel.id]: channelMessages.map((msg) => {
+              if (msg.id === updatedMsg.id) {
+                return {
+                  ...msg,
+                  voiceUrl: updatedMsg.voice_url as string | undefined,
+                  voiceDuration: updatedMsg.voice_duration as number | undefined,
+                  messageType: updatedMsg.message_type as Message['messageType'] || msg.messageType,
+                };
+              }
+              return msg;
+            }),
+          };
+        });
+      }
     });
 
     return unsubscribe;
   }, [activeChannel?.id]);
+
+  // Real-time message files subscription
+  useEffect(() => {
+    if (!activeChannel) return;
+
+    const subscription = supabase
+      .channel(`message-files:${activeChannel.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'message_files',
+          filter: `channel_id=eq.${activeChannel.id}`,
+        },
+        (payload) => {
+          const newFile = payload.new;
+          setMessages((prev) => {
+            const channelMessages = prev[activeChannel.id] || [];
+            return {
+              ...prev,
+              [activeChannel.id]: channelMessages.map((msg) => {
+                if (msg.id === newFile.message_id) {
+                  const fileType = (newFile.file_type as string || '').startsWith('image/')
+                    ? 'image'
+                    : (newFile.file_type as string || '').startsWith('video/')
+                    ? 'video'
+                    : (newFile.file_type as string || '').includes('audio')
+                    ? 'voice'
+                    : 'document';
+
+                  const newFileObj = {
+                    id: newFile.id as string,
+                    name: newFile.file_name as string,
+                    type: fileType,
+                    size: formatFileSize((newFile.file_size as number) || 0),
+                    url: newFile.file_url as string,
+                    thumbnail: newFile.thumbnail_url as string | undefined,
+                  };
+
+                  // Check if file already exists
+                  if (!msg.files.some(f => f.id === newFileObj.id)) {
+                    return { ...msg, files: [...msg.files, newFileObj] };
+                  }
+                }
+                return msg;
+              }),
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [activeChannel?.id]);
+
+  // Helper function to format file size
+  function formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
 
   const handleSelectWorkspace = useCallback((workspace: Workspace) => {
     setActiveWorkspace(workspace);
@@ -211,12 +303,28 @@ export default function MessagingHub() {
           try {
             const voiceFile = new File([voiceBlob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
             const uploaded = await uploadMessageFile(voiceFile, activeChannel.id);
+            
+            // Add voice file to message_files
             await addMessageFile(result.id, {
               name: uploaded.name,
               type: 'audio/webm',
               url: uploaded.url,
               size: uploaded.size,
             });
+
+            // Update message with voice URL and duration
+            const duration = Math.floor(voiceBlob.size / 16000); // Approximate duration
+            const { error: updateError } = await supabase
+              .from('messages')
+              .update({ 
+                voice_url: uploaded.url,
+                voice_duration: duration 
+              })
+              .eq('id', result.id);
+
+            if (updateError) {
+              console.warn('Failed to update voice URL:', updateError);
+            }
           } catch (voiceErr) {
             console.warn('Voice upload failed:', voiceErr);
           }
@@ -673,6 +781,8 @@ export default function MessagingHub() {
               onSelectChannel={handleSelectChannel}
               onBack={handleBack}
               currentUserRole={currentUser.role}
+              currentUserId={user?.id || currentUser.id}
+              onChannelsUpdated={() => workspacesQuery.refetch()}
             />
           </motion.div>
 

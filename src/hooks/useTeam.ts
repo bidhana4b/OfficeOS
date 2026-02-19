@@ -8,6 +8,7 @@ export function useTeams() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -47,6 +48,7 @@ export function useTeamMembers(teamCategory?: string) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -121,6 +123,7 @@ export function useTeamDashboardSummary(): {
 
   useEffect(() => {
     async function fetch() {
+      if (!supabase) { setLoading(false); return; }
       setLoading(true);
       try {
         const [clientsRes, deliverablesRes, campaignsRes] = await Promise.all([

@@ -4,3 +4,6 @@ export { default as ChannelList } from './ChannelList';
 export { default as MessageThread } from './MessageThread';
 export { default as WorkspaceInsightPanel } from './WorkspaceInsightPanel';
 export { default as BoostWizard } from './BoostWizard';
+export { default as CreateChannelModal } from './CreateChannelModal';
+export { default as AddMemberModal } from './AddMemberModal';
+export { default as QuickActionsManager } from './QuickActionsManager';

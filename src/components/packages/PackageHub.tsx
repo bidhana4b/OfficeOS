@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -201,9 +200,7 @@ export function PackageHub() {
 
                     {/* Delete confirmation */}
                     {deleteConfirm === pkg.id && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -5 }}
-                        animate={{ opacity: 1, y: 0 }}
+                      <div
                         className="absolute inset-0 bg-[#0F1419]/95 backdrop-blur-xl rounded-xl border border-[#FF006E]/30 flex items-center justify-center gap-2 z-10"
                       >
                         <span className="font-mono text-[10px] text-white/60">Delete?</span>
@@ -220,7 +217,7 @@ export function PackageHub() {
                         >
                           No
                         </button>
-                      </motion.div>
+                      </div>
                     )}
                   </div>
                 );
@@ -382,13 +379,13 @@ export function PackageHub() {
               ) : (
                 <div className="flex-1 flex items-center justify-center h-full min-h-[400px]">
                   <div className="text-center">
-                    <motion.div
+                    <div.div
                       initial={{ scale: 0.9, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
                       className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#00D9FF]/10 to-[#7B61FF]/10 border border-[#00D9FF]/30 flex items-center justify-center mx-auto mb-4"
                     >
                       <Package className="w-10 h-10 text-[#00D9FF]" />
-                    </motion.div>
+                    </div.div>
                     <h3 className="text-xl font-bold text-white mb-2">Select a Package</h3>
                     <p className="text-white/60 text-sm max-w-md mb-4">
                       Choose a package from the list to view details, edit deliverables, and manage clients

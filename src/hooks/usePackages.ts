@@ -72,6 +72,7 @@ export function useServiceCategories() {
   const [loading, setLoading] = useState(true);
 
   const fetchCategories = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     const { data: rows } = await supabase
       .from('service_categories')
@@ -86,6 +87,7 @@ export function useServiceCategories() {
   useEffect(() => { fetchCategories(); }, [fetchCategories]);
 
   const create = async (cat: Partial<ServiceCategory>) => {
+    if (!supabase) return new Error('No connection');
     const { error } = await supabase.from('service_categories').insert({
       tenant_id: DEMO_TENANT_ID,
       name: cat.name,

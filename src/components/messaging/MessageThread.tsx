@@ -41,6 +41,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 import type { Message, Channel, Workspace, User, DeliverableTag, BoostTag, MessageAction } from './types';
 
 interface MessageThreadProps {
@@ -900,6 +901,19 @@ function MessageBubble({
                         <span className="font-mono-data text-[9px] text-white/30">{file.size}</span>
                       </div>
                     </div>
+                  ) : file.type === 'video' || file.url?.includes('.mp4') || file.url?.includes('.webm') || file.url?.includes('.mov') ? (
+                    <div className="rounded-lg overflow-hidden border border-white/[0.1] mt-1">
+                      <video 
+                        src={file.url} 
+                        controls 
+                        className="w-full max-w-[280px] h-auto bg-black/40"
+                        preload="metadata"
+                      />
+                      <div className="flex items-center justify-between px-2 py-1.5 bg-black/20">
+                        <span className="font-mono-data text-[9px] text-white/40 truncate">{file.name}</span>
+                        <span className="font-mono-data text-[9px] text-white/30">{file.size}</span>
+                      </div>
+                    </div>
                   ) : file.type === 'voice' ? (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]">
                       <Mic className="w-4 h-4 text-titan-cyan" />
@@ -1131,6 +1145,9 @@ export default function MessageThread({
   const [showSaved, setShowSaved] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
+  const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
@@ -1286,6 +1303,54 @@ export default function MessageThread({
     onSendMessage(content, undefined, activeThread);
   };
 
+  const handleOpenAddMember = async () => {
+    setShowAddMemberDialog(true);
+    setLoadingUsers(true);
+    try {
+      const DEMO_TENANT_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('id, name, avatar_url, role, email')
+        .eq('tenant_id', DEMO_TENANT_ID);
+      
+      if (error) throw error;
+      
+      // Filter out users already in workspace
+      const existingMemberIds = workspace.members.map(m => m.id);
+      const available = (data || [])
+        .filter(u => !existingMemberIds.includes(u.id))
+        .map(u => ({
+          id: u.id,
+          name: u.name,
+          avatar: u.avatar_url || '👤',
+          status: 'offline' as const,
+          role: u.role || 'member',
+          email: u.email,
+        }));
+      
+      setAvailableUsers(available);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleAddMember = async (user: User) => {
+    try {
+      // Import addChannelMember from data-service
+      const { addChannelMember } = await import('@/lib/data-service');
+      await addChannelMember(channel.id, user.id, user.name, user.avatar, user.role);
+      
+      // Update workspace members locally (optimistic update)
+      workspace.members.push(user);
+      
+      setShowAddMemberDialog(false);
+    } catch (err) {
+      console.error('Failed to add member:', err);
+    }
+  };
+
   const handleRetryMessage = (message: Message) => {
     if (onRetrySendMessage) {
       onRetrySendMessage(message.id);
@@ -1385,7 +1450,10 @@ export default function MessageThread({
               <button onClick={() => setShowMembers(false)} className="p-1 rounded-md hover:bg-white/[0.06] text-white/30"><X className="w-3.5 h-3.5" /></button>
             </div>
             <div className="p-2">
-              <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/[0.06] text-titan-cyan/60 hover:text-titan-cyan transition-all mb-2">
+              <button 
+                onClick={handleOpenAddMember}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/[0.06] text-titan-cyan/60 hover:text-titan-cyan transition-all mb-2"
+              >
                 <UserPlus className="w-3.5 h-3.5" /><span className="font-mono-data text-[11px]">Add Member</span>
               </button>
               <div className="mb-3">
@@ -1455,6 +1523,72 @@ export default function MessageThread({
             onSendReply={handleSendThreadReply}
             onReaction={onReaction}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Add Member Dialog */}
+      <AnimatePresence>
+        {showAddMemberDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowAddMemberDialog(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="glass-card border border-white/[0.08] rounded-xl p-4 w-full max-w-md mx-4"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-titan-cyan" />
+                  <h3 className="font-display font-bold text-sm text-white">Add Member to {channel.name}</h3>
+                </div>
+                <button
+                  onClick={() => setShowAddMemberDialog(false)}
+                  className="p-1 rounded-md hover:bg-white/[0.06] text-white/40"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-titan-cyan/30 border-t-titan-cyan rounded-full animate-spin" />
+                </div>
+              ) : availableUsers.length === 0 ? (
+                <div className="text-center py-8 text-white/40 font-mono-data text-xs">
+                  No available users to add
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {availableUsers.map((user) => (
+                    <button
+                      key={user.id}
+                      onClick={() => handleAddMember(user)}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/[0.06] transition-all group"
+                    >
+                      <div className={cn(
+                        'w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold',
+                        user.role === 'client' ? 'bg-titan-purple/20 text-titan-purple' : 'bg-titan-cyan/20 text-titan-cyan'
+                      )}>
+                        {user.avatar}
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="font-mono-data text-xs text-white/80 group-hover:text-white">{user.name}</p>
+                        <p className="font-mono-data text-[10px] text-white/30 capitalize">{user.role}</p>
+                      </div>
+                      <UserPlus className="w-4 h-4 text-white/20 group-hover:text-titan-cyan" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

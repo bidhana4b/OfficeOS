@@ -2,13 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-function getSupabase() {
-  if (!supabase) {
-    throw new Error('Supabase is not configured');
-  }
-  return supabase;
-}
-
 export interface UseSupabaseQueryOptions<T> {
   table: string;
   select?: string;
@@ -40,7 +33,7 @@ export function useSupabaseQuery<T = unknown>(
     setError(null);
 
     try {
-      let query = getSupabase().from(table).select(select);
+      let query = supabase.from(table).select(select);
 
       if (filter) {
         Object.entries(filter).forEach(([key, value]) => {
@@ -85,7 +78,7 @@ export function useRealtimeSubscription(
   callback: (payload: unknown) => void
 ) {
   useEffect(() => {
-    const channel: RealtimeChannel = getSupabase()
+    const channel: RealtimeChannel = supabase
       .channel(`realtime-${table}`)
       .on(
         'postgres_changes',
@@ -97,7 +90,7 @@ export function useRealtimeSubscription(
       .subscribe();
 
     return () => {
-      getSupabase().removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [table, callback]);
 }
@@ -106,7 +99,7 @@ export async function supabaseInsert<T extends Record<string, unknown>>(
   table: string,
   data: T
 ): Promise<{ data: T | null; error: string | null }> {
-  const { data: result, error } = await getSupabase()
+  const { data: result, error } = await supabase
     .from(table)
     .insert({ ...data, tenant_id: DEMO_TENANT_ID })
     .select()
@@ -123,7 +116,7 @@ export async function supabaseUpdate<T extends Record<string, unknown>>(
   id: string,
   data: Partial<T>
 ): Promise<{ data: T | null; error: string | null }> {
-  const { data: result, error } = await getSupabase()
+  const { data: result, error } = await supabase
     .from(table)
     .update(data)
     .eq('id', id)
@@ -140,6 +133,6 @@ export async function supabaseDelete(
   table: string,
   id: string
 ): Promise<{ error: string | null }> {
-  const { error } = await getSupabase().from(table).delete().eq('id', id);
+  const { error } = await supabase.from(table).delete().eq('id', id);
   return { error: error?.message || null };
 }

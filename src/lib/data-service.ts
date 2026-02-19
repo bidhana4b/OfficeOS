@@ -631,10 +631,13 @@ function formatFileSize(bytes: number): string {
 }
 
 // ============================================
-// CHANNEL MEMBER MANAGEMENT
+// CHANNEL MEMBER MANAGEMENT (Legacy)
 // ============================================
+// NOTE: The project has an enhanced channel member API further down in this file.
+// These legacy exports were causing duplicate identifier errors at runtime.
+// They are kept here (non-exported) only for reference.
 
-export async function addChannelMember(
+async function addChannelMemberLegacy(
   channelId: string,
   userId: string,
   userName: string,
@@ -657,7 +660,7 @@ export async function addChannelMember(
   return data;
 }
 
-export async function removeChannelMember(channelId: string, userId: string) {
+async function removeChannelMemberLegacy(channelId: string, userId: string) {
   const sb = requireSupabaseClient();
   const { error } = await sb
     .from('channel_members')
@@ -667,7 +670,7 @@ export async function removeChannelMember(channelId: string, userId: string) {
   if (error) throw error;
 }
 
-export async function getChannelMembers(channelId: string) {
+async function getChannelMembersLegacy(channelId: string) {
   const sb = requireSupabaseClient();
   const { data, error } = await sb
     .from('channel_members')
@@ -1199,6 +1202,235 @@ export async function addClientToWorkspace(
 }
 
 // ============================================
+// CHANNEL MANAGEMENT (Create, Members)
+// ============================================
+
+export interface CreateChannelInput {
+  workspace_id: string;
+  name: string;
+  channel_type: 'open' | 'closed';
+  description?: string;
+  icon?: string;
+  created_by_id: string;
+  member_ids?: string[]; // For closed channels
+}
+
+export async function createChannel(input: CreateChannelInput) {
+  const sb = requireSupabaseClient();
+  
+  // Create channel
+  const { data: channel, error: channelError } = await sb
+    .from('channels')
+    .insert({
+      workspace_id: input.workspace_id,
+      name: input.name,
+      channel_type: input.channel_type,
+      description: input.description,
+      icon: input.icon || 'hash',
+      type: 'custom',
+      created_by_id: input.created_by_id,
+    })
+    .select()
+    .single();
+
+  if (channelError) throw channelError;
+
+  // If closed channel, add specific members
+  if (input.channel_type === 'closed' && input.member_ids && input.member_ids.length > 0) {
+    const { error: membersError } = await sb
+      .from('channel_members')
+      .insert(
+        input.member_ids.map(userId => ({
+          channel_id: channel.id,
+          user_profile_id: userId,
+          role_in_channel: 'member',
+          added_by: input.created_by_id,
+        }))
+      );
+    
+    if (membersError) throw membersError;
+  }
+
+  return channel;
+}
+
+export async function getChannelMembers(channelId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('channel_members')
+    .select('*, user_profiles:user_profile_id(id, full_name, avatar, email, role)')
+    .eq('channel_id', channelId)
+    .order('added_at', { ascending: true });
+
+  if (error) throw error;
+
+  // Dedupe by (channel_id, user_profile_id) to avoid runtime crashes if the table contains duplicates
+  // (e.g. if older client code inserted into channel_members without a unique constraint).
+  const seen = new Set<string>();
+  const deduped = (data || []).filter((row: any) => {
+    const key = `${row.channel_id ?? channelId}:${row.user_profile_id ?? row.user_id ?? row.id ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return deduped;
+}
+
+export async function addChannelMember(
+  channelId: string,
+  userProfileId: string,
+  addedBy: string,
+  roleInChannel: 'admin' | 'member' = 'member'
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('channel_members')
+    .insert({
+      channel_id: channelId,
+      user_profile_id: userProfileId,
+      role_in_channel: roleInChannel,
+      added_by: addedBy,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function removeChannelMember(channelId: string, userProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('channel_members')
+    .delete()
+    .eq('channel_id', channelId)
+    .eq('user_profile_id', userProfileId);
+
+  if (error) throw error;
+}
+
+export async function getAvailableMembersForChannel(workspaceId: string, channelId: string) {
+  const sb = requireSupabaseClient();
+  
+  // Get all workspace members
+  const { data: workspaceMembers, error: wmError } = await sb
+    .from('workspace_members')
+    .select('user_profile_id, name, avatar, role')
+    .eq('workspace_id', workspaceId);
+
+  if (wmError) throw wmError;
+
+  // Get current channel members
+  const { data: channelMembers, error: cmError } = await sb
+    .from('channel_members')
+    .select('user_profile_id')
+    .eq('channel_id', channelId);
+
+  if (cmError) throw cmError;
+
+  const channelMemberIds = new Set(channelMembers?.map(m => m.user_profile_id) || []);
+  
+  // Filter out members already in channel
+  return (workspaceMembers || []).filter(
+    m => m.user_profile_id && !channelMemberIds.has(m.user_profile_id)
+  );
+}
+
+// ============================================
+// QUICK ACTIONS MANAGEMENT
+// ============================================
+
+export async function getQuickActions(tenantId?: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('quick_actions')
+    .select('*')
+    .eq('tenant_id', tenantId || DEMO_TENANT_ID)
+    .eq('is_active', true)
+    .order('display_order', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export interface CreateQuickActionInput {
+  tenant_id?: string;
+  action_name: string;
+  action_label: string;
+  icon: string;
+  action_type: 'deliverable' | 'boost' | 'custom' | 'link';
+  linked_service_type?: string;
+  linked_url?: string;
+  color_accent?: string;
+  role_access?: string[];
+}
+
+export async function createQuickAction(input: CreateQuickActionInput) {
+  const sb = requireSupabaseClient();
+  
+  // Get max display order
+  const { data: maxOrder } = await sb
+    .from('quick_actions')
+    .select('display_order')
+    .eq('tenant_id', input.tenant_id || DEMO_TENANT_ID)
+    .order('display_order', { ascending: false })
+    .limit(1)
+    .single();
+
+  const { data, error } = await sb
+    .from('quick_actions')
+    .insert({
+      ...input,
+      tenant_id: input.tenant_id || DEMO_TENANT_ID,
+      display_order: (maxOrder?.display_order || 0) + 1,
+      role_access: input.role_access || ['super_admin'],
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateQuickAction(id: string, updates: Partial<CreateQuickActionInput>) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('quick_actions')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteQuickAction(id: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('quick_actions')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+export async function reorderQuickActions(tenantId: string, orderedIds: string[]) {
+  const sb = requireSupabaseClient();
+  
+  // Update display_order for each action
+  const updates = orderedIds.map((id, index) =>
+    sb.from('quick_actions')
+      .update({ display_order: index + 1 })
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+  );
+
+  await Promise.all(updates);
+}
+
+// ============================================
 // TEAM ASSIGNMENT (DELIVERABLE-LEVEL)
 // ============================================
 
@@ -1238,6 +1470,10 @@ export function subscribeToTable(
   callback: (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => void,
   filter?: string
 ) {
+  if (!supabase) {
+    return () => {};
+  }
+
   const config: {
     event: 'INSERT' | 'UPDATE' | 'DELETE' | '*';
     schema: string;
@@ -1253,8 +1489,7 @@ export function subscribeToTable(
     config.filter = filter;
   }
 
-  const sb = requireSupabaseClient();
-  const channel = sb
+  const channel = supabase
     .channel(`realtime-${table}-${filter || 'all'}`)
     .on('postgres_changes', config, (payload) => {
       callback({
@@ -1266,8 +1501,9 @@ export function subscribeToTable(
     .subscribe();
 
   return () => {
-    const sb = requireSupabaseClient();
-    sb.removeChannel(channel);
+    if (supabase) {
+      supabase.removeChannel(channel);
+    }
   };
 }
 

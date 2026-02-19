@@ -362,36 +362,48 @@ export type Database = {
       }
       channel_members: {
         Row: {
+          added_at: string | null
+          added_by: string | null
           channel_id: string
           id: string
           is_muted: boolean | null
           joined_at: string | null
           notification_pref: string | null
+          role_in_channel: string | null
           user_avatar: string | null
           user_id: string
           user_name: string | null
+          user_profile_id: string | null
           user_role: string | null
         }
         Insert: {
+          added_at?: string | null
+          added_by?: string | null
           channel_id: string
           id?: string
           is_muted?: boolean | null
           joined_at?: string | null
           notification_pref?: string | null
+          role_in_channel?: string | null
           user_avatar?: string | null
           user_id: string
           user_name?: string | null
+          user_profile_id?: string | null
           user_role?: string | null
         }
         Update: {
+          added_at?: string | null
+          added_by?: string | null
           channel_id?: string
           id?: string
           is_muted?: boolean | null
           joined_at?: string | null
           notification_pref?: string | null
+          role_in_channel?: string | null
           user_avatar?: string | null
           user_id?: string
           user_name?: string | null
+          user_profile_id?: string | null
           user_role?: string | null
         }
         Relationships: [
@@ -402,12 +414,21 @@ export type Database = {
             referencedRelation: "channels"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "channel_members_user_profile_id_fkey"
+            columns: ["user_profile_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       channels: {
         Row: {
+          channel_type: string | null
           created_at: string | null
           created_by: string | null
+          created_by_id: string | null
           description: string | null
           icon: string | null
           id: string
@@ -417,6 +438,7 @@ export type Database = {
           is_private: boolean | null
           last_message: string | null
           last_message_time: string | null
+          member_count: number | null
           name: string
           pinned_message_ids: string[] | null
           type: string | null
@@ -424,8 +446,10 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          channel_type?: string | null
           created_at?: string | null
           created_by?: string | null
+          created_by_id?: string | null
           description?: string | null
           icon?: string | null
           id?: string
@@ -435,6 +459,7 @@ export type Database = {
           is_private?: boolean | null
           last_message?: string | null
           last_message_time?: string | null
+          member_count?: number | null
           name: string
           pinned_message_ids?: string[] | null
           type?: string | null
@@ -442,8 +467,10 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          channel_type?: string | null
           created_at?: string | null
           created_by?: string | null
+          created_by_id?: string | null
           description?: string | null
           icon?: string | null
           id?: string
@@ -453,6 +480,7 @@ export type Database = {
           is_private?: boolean | null
           last_message?: string | null
           last_message_time?: string | null
+          member_count?: number | null
           name?: string
           pinned_message_ids?: string[] | null
           type?: string | null
@@ -1978,6 +2006,75 @@ export type Database = {
           },
           {
             foreignKeyName: "projects_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quick_actions: {
+        Row: {
+          action_label: string
+          action_name: string
+          action_type: string | null
+          color_accent: string | null
+          created_at: string | null
+          created_by: string | null
+          display_order: number | null
+          icon: string
+          id: string
+          is_active: boolean | null
+          linked_service_type: string | null
+          linked_url: string | null
+          role_access: Json | null
+          tenant_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          action_label: string
+          action_name: string
+          action_type?: string | null
+          color_accent?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          display_order?: number | null
+          icon: string
+          id?: string
+          is_active?: boolean | null
+          linked_service_type?: string | null
+          linked_url?: string | null
+          role_access?: Json | null
+          tenant_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          action_label?: string
+          action_name?: string
+          action_type?: string | null
+          color_accent?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          display_order?: number | null
+          icon?: string
+          id?: string
+          is_active?: boolean | null
+          linked_service_type?: string | null
+          linked_url?: string | null
+          role_access?: Json | null
+          tenant_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quick_actions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "system_health_summary"
+            referencedColumns: ["tenant_id"]
+          },
+          {
+            foreignKeyName: "quick_actions_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"

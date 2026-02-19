@@ -8,6 +8,7 @@ export function useDashboardMetrics() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -45,6 +46,7 @@ export function useDashboardActivity() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -107,6 +109,7 @@ export function useDashboardProjects() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -156,6 +159,7 @@ export function useDashboardAIInsights() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -193,6 +197,7 @@ export function useDashboardNotifications() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase
@@ -242,6 +247,7 @@ export function useRevenueChartData() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
     setLoading(true);
     try {
       const { data: result, error: err } = await supabase

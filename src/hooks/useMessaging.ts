@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
-import type { Workspace, Channel, Message } from '@/components/messaging/types';
+import type { Workspace, Channel, Message, MessageType } from '@/components/messaging/types';
 
 export function useWorkspaces() {
   const [data, setData] = useState<Workspace[]>([]);
@@ -133,6 +133,9 @@ export function useMessages(channelId?: string) {
           isPinned: (r.is_pinned as boolean) || false,
           isEdited: (r.is_edited as boolean) || false,
           threadCount: (r.thread_count as number) || 0,
+          messageType: (r.message_type as MessageType) || 'text',
+          voiceUrl: r.voice_url as string | undefined,
+          voiceDuration: r.voice_duration as number | undefined,
         };
       });
       setData(mapped);
