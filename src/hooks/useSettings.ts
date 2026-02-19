@@ -1,6 +1,59 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 
+export function useDemoUsers() {
+  const [data, setData] = useState<Record<string, unknown>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: result, error: err } = await supabase
+        .from('demo_users')
+        .select('*')
+        .eq('tenant_id', DEMO_TENANT_ID)
+        .order('created_at', { ascending: false });
+
+      if (err) throw err;
+      setData(result || []);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error loading demo users');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+  return { data, loading, error, refetch: fetchData };
+}
+
+export function useTeamsForSelect() {
+  const [data, setData] = useState<{ id: string; name: string; category: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: result, error: err } = await supabase
+        .from('teams')
+        .select('id, name, category')
+        .eq('tenant_id', DEMO_TENANT_ID)
+        .order('name');
+
+      if (err) throw err;
+      setData((result || []).map((t: any) => ({ id: t.id, name: t.name, category: t.category || '' })));
+    } catch {
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+  return { data, loading };
+}
+
 export function useSettings<T = Record<string, unknown>>(section: string) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);

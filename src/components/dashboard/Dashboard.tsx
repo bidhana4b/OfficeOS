@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useAuth, getRoleLabel } from '@/lib/auth';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import SidebarNav from './SidebarNav';
 import TopCommandBar from './TopCommandBar';
 import HeroMetrics from './HeroMetrics';
@@ -18,6 +19,13 @@ import { ClientHub } from '@/components/clients';
 import { PackageHub } from '@/components/packages';
 import { SettingsHub } from '@/components/settings';
 import { ClientAssignmentCenter } from '@/components/assignments';
+import { InvoiceManagement, CampaignManagement, WalletAdmin } from '@/components/finance';
+import {
+  DesignerDashboard,
+  MediaBuyerDashboard,
+  AccountManagerDashboard,
+  FinanceDashboard,
+} from './role-dashboards';
 import {
   useDashboardMetrics,
   useDashboardActivity,
@@ -28,6 +36,7 @@ import {
 } from '@/hooks/useDashboard';
 import { subscribeToTable } from '@/lib/data-service';
 import DebugPanel from '@/components/debug/DebugPanel';
+import SystemStatusBanner from './SystemStatusBanner';
 
 export default function Dashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -86,7 +95,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="h-screen bg-titan-bg relative overflow-hidden">
+    <div className="h-screen bg-background relative overflow-hidden">
       {/* Background grid pattern */}
       <div
         className="fixed inset-0 pointer-events-none z-0"
@@ -127,9 +136,15 @@ export default function Dashboard() {
           onAIToggle={() => setAiOpen(!aiOpen)}
           notifications={notifications.data}
           notificationsLoading={notifications.loading}
+          onNotificationsRefresh={notifications.refetch}
+          onNavigate={setActiveNav}
         />
 
+        {/* System Status Banner */}
+        <SystemStatusBanner />
+
         {/* Dashboard Content */}
+        <ErrorBoundary>
         {activeNav === 'messaging' ? (
           <div className="flex-1 overflow-hidden">
             <MessagingHub />
@@ -154,10 +169,30 @@ export default function Dashboard() {
           <div className="flex-1 overflow-hidden">
             <SettingsHub />
           </div>
+        ) : activeNav === 'finance' ? (
+          <div className="flex-1 overflow-hidden">
+            <InvoiceManagement />
+          </div>
+        ) : activeNav === 'media' ? (
+          <div className="flex-1 overflow-hidden">
+            <CampaignManagement />
+          </div>
+        ) : activeNav === 'wallet' ? (
+          <div className="flex-1 overflow-hidden">
+            <WalletAdmin />
+          </div>
         ) : activeNav === 'debug' ? (
           <div className="flex-1 overflow-auto">
             <DebugPanel />
           </div>
+        ) : user?.role === 'designer' ? (
+          <DesignerDashboard />
+        ) : user?.role === 'media_buyer' ? (
+          <MediaBuyerDashboard />
+        ) : user?.role === 'account_manager' ? (
+          <AccountManagerDashboard />
+        ) : user?.role === 'finance' ? (
+          <FinanceDashboard />
         ) : (
         <div className="flex-1 flex">
           {/* Main Area */}
@@ -228,6 +263,7 @@ export default function Dashboard() {
           </div>
         </div>
         )}
+        </ErrorBoundary>
       </div>
 
       {/* Command Palette */}

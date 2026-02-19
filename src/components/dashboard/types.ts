@@ -54,4 +54,7 @@ export interface NotificationItem {
   description: string;
   timestamp: string;
   read: boolean;
+  actionType?: string | null;
+  relatedClientId?: string | null;
+  metadata?: Record<string, unknown> | null;
 }

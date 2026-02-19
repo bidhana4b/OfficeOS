@@ -69,6 +69,7 @@ module.exports = {
   				magenta: '#FF006E',
   				lime: '#39FF14',
   				purple: '#7B61FF',
+  				amber: '#FFB800',
   				deep: '#0F1419',
   				dark: '#12152B',
   			}

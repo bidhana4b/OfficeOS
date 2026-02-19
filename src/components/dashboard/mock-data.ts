@@ -235,6 +235,8 @@ export const notificationsData: NotificationItem[] = [
     description: 'AWS costs exceeded the monthly threshold by 12%',
     timestamp: '5m ago',
     read: false,
+    actionType: 'view_finance',
+    metadata: { section: 'finance' },
   },
   {
     id: '2',
@@ -243,6 +245,8 @@ export const notificationsData: NotificationItem[] = [
     description: 'TechStart Inc paid Invoice #1247',
     timestamp: '15m ago',
     read: false,
+    actionType: 'view_invoice',
+    metadata: { section: 'finance', invoice_id: 'inv-1247' },
   },
   {
     id: '3',
@@ -251,6 +255,9 @@ export const notificationsData: NotificationItem[] = [
     description: 'BluePeak Studios requested a consultation',
     timestamp: '1h ago',
     read: false,
+    actionType: 'view_client',
+    relatedClientId: 'client-3',
+    metadata: { section: 'clients', client_name: 'BluePeak Studios' },
   },
   {
     id: '4',
@@ -259,6 +266,8 @@ export const notificationsData: NotificationItem[] = [
     description: 'Requested Dec 23–Jan 2 time off',
     timestamp: '2h ago',
     read: true,
+    actionType: 'view_team',
+    metadata: { section: 'team' },
   },
   {
     id: '5',
@@ -267,6 +276,8 @@ export const notificationsData: NotificationItem[] = [
     description: 'Invoice #1239 is 15 days overdue ($4,200)',
     timestamp: '5h ago',
     read: true,
+    actionType: 'view_invoice',
+    metadata: { section: 'finance', invoice_id: 'inv-1239' },
   },
   {
     id: '6',
@@ -275,6 +286,9 @@ export const notificationsData: NotificationItem[] = [
     description: 'NovaBrand contract expires in 30 days',
     timestamp: '1d ago',
     read: true,
+    actionType: 'view_client',
+    relatedClientId: 'client-6',
+    metadata: { section: 'clients', client_name: 'NovaBrand' },
   },
 ];
 

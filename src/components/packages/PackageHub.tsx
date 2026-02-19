@@ -379,13 +379,11 @@ export function PackageHub() {
               ) : (
                 <div className="flex-1 flex items-center justify-center h-full min-h-[400px]">
                   <div className="text-center">
-                    <div.div
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
+                    <div
                       className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#00D9FF]/10 to-[#7B61FF]/10 border border-[#00D9FF]/30 flex items-center justify-center mx-auto mb-4"
                     >
                       <Package className="w-10 h-10 text-[#00D9FF]" />
-                    </div.div>
+                    </div>
                     <h3 className="text-xl font-bold text-white mb-2">Select a Package</h3>
                     <p className="text-white/60 text-sm max-w-md mb-4">
                       Choose a package from the list to view details, edit deliverables, and manage clients

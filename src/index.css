@@ -54,10 +54,90 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'JetBrains Mono', monospace;
-    background-color: #0A0E27;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Space Grotesk', sans-serif;
+  }
+
+  /* Light mode text overrides */
+  .light body {
+    color: #0F172A;
+  }
+  .light .text-white {
+    color: #1E293B;
+  }
+  .light .text-white\/90 {
+    color: rgba(30,41,59,0.9);
+  }
+  .light .text-white\/80 {
+    color: rgba(30,41,59,0.8);
+  }
+  .light .text-white\/70 {
+    color: rgba(30,41,59,0.7);
+  }
+  .light .text-white\/60 {
+    color: rgba(30,41,59,0.6);
+  }
+  .light .text-white\/50 {
+    color: rgba(30,41,59,0.5);
+  }
+  .light .text-white\/40 {
+    color: rgba(30,41,59,0.4);
+  }
+  .light .text-white\/30 {
+    color: rgba(30,41,59,0.3);
+  }
+  .light .text-white\/20 {
+    color: rgba(30,41,59,0.2);
+  }
+
+  /* Light mode background overrides */
+  .light .bg-white\/\[0\.03\] {
+    background-color: rgba(255,255,255,0.95);
+  }
+  .light .bg-white\/\[0\.02\] {
+    background-color: rgba(255,255,255,0.8);
+  }
+  .light .bg-white\/\[0\.04\] {
+    background-color: rgba(241,245,249,0.8);
+  }
+  .light .bg-white\/\[0\.06\] {
+    background-color: rgba(241,245,249,0.9);
+  }
+  .light .bg-white\/\[0\.01\] {
+    background-color: rgba(248,250,252,0.95);
+  }
+
+  /* Light mode border overrides */
+  .light .border-white\/\[0\.06\] {
+    border-color: rgba(0,0,0,0.08);
+  }
+  .light .border-white\/\[0\.05\] {
+    border-color: rgba(0,0,0,0.06);
+  }
+  .light .border-white\/\[0\.08\] {
+    border-color: rgba(0,0,0,0.1);
+  }
+  .light .border-white\/\[0\.1\] {
+    border-color: rgba(0,0,0,0.1);
+  }
+  .light .border-white\/\[0\.12\] {
+    border-color: rgba(0,0,0,0.12);
+  }
+  .light .border-white\/10 {
+    border-color: rgba(0,0,0,0.1);
+  }
+
+  /* Light mode glass card */
+  .light .glass-card {
+    background: rgba(255,255,255,0.85);
+    border-color: rgba(0,0,0,0.08);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .light .glass-card-hover:hover {
+    border-color: rgba(0,0,0,0.15);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
   }
 }
 

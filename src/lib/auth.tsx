@@ -83,6 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser(demoUser);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(demoUser));
+
+      // Track last login
+      supabase.from('demo_users').update({ last_login_at: new Date().toISOString() }).eq('id', data.id).then(() => {});
+
       setLoading(false);
       return true;
     } catch (err) {

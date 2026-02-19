@@ -62,7 +62,8 @@ const colorConfig = {
 };
 
 export default function HeroMetrics({ data, loading }: HeroMetricsProps) {
-  const metricsData = data && data.length > 0 ? data : mockMetricsData;
+  const isRealData = data && data.length > 0;
+  const metricsData = isRealData ? data : mockMetricsData;
 
   if (loading) {
     return (

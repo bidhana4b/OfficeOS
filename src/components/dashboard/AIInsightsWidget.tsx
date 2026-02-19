@@ -1,11 +1,14 @@
-import { Brain, AlertTriangle, TrendingUp, Lightbulb, ArrowRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Brain, AlertTriangle, TrendingUp, Lightbulb, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiInsightsData as mockAiInsightsData } from './mock-data';
 import type { AIInsight } from './types';
+import { getAIApiKeys, generateDashboardInsights } from '@/lib/ai-service';
 
 interface AIInsightsWidgetProps {
   data?: AIInsight[];
   loading?: boolean;
+  dashboardData?: Record<string, unknown>;
 }
 
 const typeConfig = {
@@ -32,8 +35,52 @@ const typeConfig = {
   },
 };
 
-export default function AIInsightsWidget({ data, loading }: AIInsightsWidgetProps) {
-  const aiInsightsData = data && data.length > 0 ? data : mockAiInsightsData;
+export default function AIInsightsWidget({ data, loading, dashboardData }: AIInsightsWidgetProps) {
+  const [aiInsights, setAiInsights] = useState<AIInsight[]>([]);
+  const [isAILoading, setIsAILoading] = useState(false);
+  const [isAIPowered, setIsAIPowered] = useState(false);
+
+  const aiInsightsData = aiInsights.length > 0 ? aiInsights : (data && data.length > 0 ? data : mockAiInsightsData);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchAIInsights() {
+      try {
+        const keys = await getAIApiKeys();
+        if (!keys.enabled || !keys.gemini_api_key || cancelled) return;
+
+        setIsAILoading(true);
+        const response = await generateDashboardInsights(dashboardData || {});
+        if (cancelled) return;
+
+        try {
+          const cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const parsed = JSON.parse(cleanResponse);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const formatted: AIInsight[] = parsed.map((item: any, idx: number) => ({
+              id: `ai-${idx}`,
+              type: (['warning', 'prediction', 'opportunity'].includes(item.type) ? item.type : 'opportunity') as AIInsight['type'],
+              title: item.title || 'AI Insight',
+              description: item.description || '',
+              confidence: Math.min(100, Math.max(0, item.confidence || 75)),
+              action: 'View Details',
+            }));
+            setAiInsights(formatted);
+            setIsAIPowered(true);
+          }
+        } catch {
+          // JSON parsing failed, keep mock
+        }
+      } catch {
+        // AI not available
+      } finally {
+        if (!cancelled) setIsAILoading(false);
+      }
+    }
+
+    fetchAIInsights();
+    return () => { cancelled = true; };
+  }, [dashboardData]);
   return (
     <div className="relative rounded-xl overflow-hidden">
       {/* Gradient border effect */}
@@ -48,11 +95,17 @@ export default function AIInsightsWidget({ data, loading }: AIInsightsWidgetProp
           </div>
           <div>
             <h3 className="font-display font-bold text-sm text-white">AI Insights</h3>
-            <p className="font-mono-data text-[9px] text-white/30">Powered by TITAN Intelligence</p>
+            <p className="font-mono-data text-[9px] text-white/30">
+              {isAIPowered ? 'Powered by Google Gemini' : 'Powered by TITAN Intelligence'}
+            </p>
           </div>
           <div className="ml-auto flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-titan-purple animate-pulse" />
-            <span className="font-mono-data text-[9px] text-titan-purple/60">{loading ? 'Loading...' : `${aiInsightsData.length} new`}</span>
+            <span className="font-mono-data text-[9px] text-titan-purple/60">
+              {isAILoading ? (
+                <span className="flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" /> Generating...</span>
+              ) : loading ? 'Loading...' : `${aiInsightsData.length} new`}
+            </span>
           </div>
         </div>
 

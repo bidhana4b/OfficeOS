@@ -226,6 +226,9 @@ export function useDashboardNotifications() {
           description: (r.description as string) || '',
           timestamp: timeAgo,
           read: (r.read as boolean) || false,
+          actionType: (r.action_type as string) || null,
+          relatedClientId: (r.related_client_id as string) || null,
+          metadata: (r.metadata as Record<string, unknown>) || null,
         };
       });
       setData(mapped);

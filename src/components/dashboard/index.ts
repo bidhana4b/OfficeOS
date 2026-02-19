@@ -9,3 +9,4 @@ export { default as ProjectsKanban } from './ProjectsKanban';
 export { default as FinancialPulseChart } from './FinancialPulseChart';
 export { default as CommandPalette } from './CommandPalette';
 export { default as AIAssistant } from './AIAssistant';
+export { default as SystemStatusBanner } from './SystemStatusBanner';

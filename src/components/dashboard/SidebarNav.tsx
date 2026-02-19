@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   Users,
   FolderKanban,
-  DollarSign,
   Megaphone,
   UserCog,
   Brain,
@@ -13,8 +12,11 @@ import {
   Package,
   Settings,
   UserPlus,
+  Wallet,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth, type UserRole } from '@/lib/auth';
 
 interface SidebarNavProps {
   collapsed: boolean;
@@ -23,22 +25,40 @@ interface SidebarNavProps {
   onNavigate: (id: string) => void;
 }
 
-const navItems = [
+interface NavItem {
+  id: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  badge?: number;
+  roles?: UserRole[]; // if undefined, show for all roles
+}
+
+const allNavItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'messaging', label: 'Messaging', icon: MessageSquare, badge: 23 },
-  { id: 'clients', label: 'Clients', icon: Users, badge: 12 },
-  { id: 'assignments', label: 'Assignments', icon: UserPlus },
-  { id: 'packages', label: 'Packages', icon: Package, badge: 4 },
-  { id: 'projects', label: 'Projects', icon: FolderKanban, badge: 7 },
-  { id: 'finance', label: 'Finance', icon: DollarSign },
-  { id: 'media', label: 'Media Buying', icon: Megaphone, badge: 3 },
-  { id: 'team', label: 'Team', icon: UserCog, badge: 52 },
-  { id: 'ai-insights', label: 'AI Insights', icon: Brain },
-  { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'debug', label: 'Debug Panel', icon: Zap },
+  { id: 'clients', label: 'Clients', icon: Users, badge: 12, roles: ['super_admin', 'account_manager'] },
+  { id: 'assignments', label: 'Assignments', icon: UserPlus, roles: ['super_admin', 'account_manager'] },
+  { id: 'packages', label: 'Packages', icon: Package, badge: 4, roles: ['super_admin', 'account_manager', 'finance'] },
+  { id: 'projects', label: 'Projects', icon: FolderKanban, badge: 7, roles: ['super_admin', 'designer', 'account_manager'] },
+  { id: 'finance', label: 'Invoices', icon: Receipt, roles: ['super_admin', 'finance', 'account_manager'] },
+  { id: 'wallet', label: 'Wallet', icon: Wallet, roles: ['super_admin', 'finance'] },
+  { id: 'media', label: 'Campaigns', icon: Megaphone, badge: 3, roles: ['super_admin', 'media_buyer'] },
+  { id: 'team', label: 'Team', icon: UserCog, badge: 52, roles: ['super_admin', 'account_manager'] },
+  { id: 'ai-insights', label: 'AI Insights', icon: Brain, roles: ['super_admin'] },
+  { id: 'settings', label: 'Settings', icon: Settings, roles: ['super_admin'] },
+  { id: 'debug', label: 'Debug Panel', icon: Zap, roles: ['super_admin'] },
 ];
 
 export default function SidebarNav({ collapsed, onToggle, activeItem, onNavigate }: SidebarNavProps) {
+  const { user } = useAuth();
+  const userRole = user?.role || 'super_admin';
+
+  // Filter nav items based on user role
+  const navItems = allNavItems.filter(item => {
+    if (!item.roles) return true; // show for all roles
+    return item.roles.includes(userRole);
+  });
+
   return (
     <aside
       className={cn(

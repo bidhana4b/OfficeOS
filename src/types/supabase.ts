@@ -127,6 +127,45 @@ export type Database = {
           },
         ]
       }
+      ai_usage_log: {
+        Row: {
+          completion_tokens: number | null
+          created_at: string | null
+          feature: string
+          id: string
+          model: string
+          prompt_tokens: number | null
+          request_context: string | null
+          tenant_id: string
+          total_tokens: number | null
+          user_id: string | null
+        }
+        Insert: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          feature: string
+          id?: string
+          model?: string
+          prompt_tokens?: number | null
+          request_context?: string | null
+          tenant_id?: string
+          total_tokens?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          feature?: string
+          id?: string
+          model?: string
+          prompt_tokens?: number | null
+          request_context?: string | null
+          tenant_id?: string
+          total_tokens?: number | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       branches: {
         Row: {
           client_count: number | null
@@ -369,6 +408,7 @@ export type Database = {
           is_muted: boolean | null
           joined_at: string | null
           notification_pref: string | null
+          role: string | null
           role_in_channel: string | null
           user_avatar: string | null
           user_id: string
@@ -384,6 +424,7 @@ export type Database = {
           is_muted?: boolean | null
           joined_at?: string | null
           notification_pref?: string | null
+          role?: string | null
           role_in_channel?: string | null
           user_avatar?: string | null
           user_id: string
@@ -399,6 +440,7 @@ export type Database = {
           is_muted?: boolean | null
           joined_at?: string | null
           notification_pref?: string | null
+          role?: string | null
           role_in_channel?: string | null
           user_avatar?: string | null
           user_id?: string
@@ -433,6 +475,7 @@ export type Database = {
           icon: string | null
           id: string
           is_archived: boolean | null
+          is_default: boolean | null
           is_hidden: boolean | null
           is_muted: boolean | null
           is_private: boolean | null
@@ -454,6 +497,7 @@ export type Database = {
           icon?: string | null
           id?: string
           is_archived?: boolean | null
+          is_default?: boolean | null
           is_hidden?: boolean | null
           is_muted?: boolean | null
           is_private?: boolean | null
@@ -475,6 +519,7 @@ export type Database = {
           icon?: string | null
           id?: string
           is_archived?: boolean | null
+          is_default?: boolean | null
           is_hidden?: boolean | null
           is_muted?: boolean | null
           is_private?: boolean | null
@@ -634,6 +679,7 @@ export type Database = {
           renewal_date: string | null
           start_date: string
           status: string | null
+          tenant_id: string | null
         }
         Insert: {
           client_id: string
@@ -645,6 +691,7 @@ export type Database = {
           renewal_date?: string | null
           start_date: string
           status?: string | null
+          tenant_id?: string | null
         }
         Update: {
           client_id?: string
@@ -656,6 +703,7 @@ export type Database = {
           renewal_date?: string | null
           start_date?: string
           status?: string | null
+          tenant_id?: string | null
         }
         Relationships: [
           {
@@ -783,6 +831,7 @@ export type Database = {
       clients: {
         Row: {
           account_manager_id: string | null
+          boost_budget_currency: string | null
           business_name: string
           category: string | null
           contact_email: string | null
@@ -792,12 +841,21 @@ export type Database = {
           health_score: number | null
           id: string
           location: string | null
+          manager_name: string | null
+          manager_phone: string | null
+          metadata: Json | null
+          monthly_boost_budget: number | null
+          onboarding_notes: string | null
+          owner_name: string | null
+          owner_phone: string | null
+          referrer_name: string | null
           status: string | null
           tenant_id: string
           updated_at: string | null
         }
         Insert: {
           account_manager_id?: string | null
+          boost_budget_currency?: string | null
           business_name: string
           category?: string | null
           contact_email?: string | null
@@ -807,12 +865,21 @@ export type Database = {
           health_score?: number | null
           id?: string
           location?: string | null
+          manager_name?: string | null
+          manager_phone?: string | null
+          metadata?: Json | null
+          monthly_boost_budget?: number | null
+          onboarding_notes?: string | null
+          owner_name?: string | null
+          owner_phone?: string | null
+          referrer_name?: string | null
           status?: string | null
           tenant_id: string
           updated_at?: string | null
         }
         Update: {
           account_manager_id?: string | null
+          boost_budget_currency?: string | null
           business_name?: string
           category?: string | null
           contact_email?: string | null
@@ -822,6 +889,14 @@ export type Database = {
           health_score?: number | null
           id?: string
           location?: string | null
+          manager_name?: string | null
+          manager_phone?: string | null
+          metadata?: Json | null
+          monthly_boost_budget?: number | null
+          onboarding_notes?: string | null
+          owner_name?: string | null
+          owner_phone?: string | null
+          referrer_name?: string | null
           status?: string | null
           tenant_id?: string
           updated_at?: string | null
@@ -1109,10 +1184,14 @@ export type Database = {
           email: string
           id: string
           is_active: boolean | null
+          last_login_at: string | null
           metadata: Json | null
+          password_changed_at: string | null
           password_hash: string
           role: string
+          team_member_id: string | null
           tenant_id: string
+          user_profile_id: string | null
         }
         Insert: {
           avatar?: string | null
@@ -1122,10 +1201,14 @@ export type Database = {
           email: string
           id?: string
           is_active?: boolean | null
+          last_login_at?: string | null
           metadata?: Json | null
+          password_changed_at?: string | null
           password_hash?: string
           role: string
+          team_member_id?: string | null
           tenant_id: string
+          user_profile_id?: string | null
         }
         Update: {
           avatar?: string | null
@@ -1135,10 +1218,14 @@ export type Database = {
           email?: string
           id?: string
           is_active?: boolean | null
+          last_login_at?: string | null
           metadata?: Json | null
+          password_changed_at?: string | null
           password_hash?: string
           role?: string
+          team_member_id?: string | null
           tenant_id?: string
+          user_profile_id?: string | null
         }
         Relationships: [
           {
@@ -1156,6 +1243,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "demo_users_team_member_id_fkey"
+            columns: ["team_member_id"]
+            isOneToOne: false
+            referencedRelation: "team_members"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "demo_users_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
@@ -1167,6 +1261,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "demo_users_user_profile_id_fkey"
+            columns: ["user_profile_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1674,6 +1775,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      package_categories: {
+        Row: {
+          color: string | null
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          tenant_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          tenant_id?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          tenant_id?: string
+        }
+        Relationships: []
+      }
+      package_deliverables: {
+        Row: {
+          created_at: string | null
+          deliverable_type: string
+          description: string | null
+          id: string
+          package_id: string
+          quantity: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          deliverable_type: string
+          description?: string | null
+          id?: string
+          package_id: string
+          quantity?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          deliverable_type?: string
+          description?: string | null
+          id?: string
+          package_id?: string
+          quantity?: number | null
+        }
+        Relationships: []
       }
       package_features: {
         Row: {
@@ -2346,6 +2510,7 @@ export type Database = {
           id: string
           join_date: string | null
           name: string
+          phone: string | null
           primary_role: string
           revision_count: number | null
           secondary_roles: string[] | null
@@ -2369,6 +2534,7 @@ export type Database = {
           id?: string
           join_date?: string | null
           name: string
+          phone?: string | null
           primary_role: string
           revision_count?: number | null
           secondary_roles?: string[] | null
@@ -2392,6 +2558,7 @@ export type Database = {
           id?: string
           join_date?: string | null
           name?: string
+          phone?: string | null
           primary_role?: string
           revision_count?: number | null
           secondary_roles?: string[] | null
@@ -2598,6 +2765,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_appearance_settings: {
+        Row: {
+          accent_color: string | null
+          active_preset: string
+          background_color: string | null
+          created_at: string | null
+          custom_config: Json | null
+          dashboard_layout: string | null
+          font_size: string | null
+          id: string
+          primary_color: string | null
+          secondary_color: string | null
+          sidebar_collapsed: boolean | null
+          tenant_id: string
+          theme_mode: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          accent_color?: string | null
+          active_preset?: string
+          background_color?: string | null
+          created_at?: string | null
+          custom_config?: Json | null
+          dashboard_layout?: string | null
+          font_size?: string | null
+          id?: string
+          primary_color?: string | null
+          secondary_color?: string | null
+          sidebar_collapsed?: boolean | null
+          tenant_id?: string
+          theme_mode?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          accent_color?: string | null
+          active_preset?: string
+          background_color?: string | null
+          created_at?: string | null
+          custom_config?: Json | null
+          dashboard_layout?: string | null
+          font_size?: string | null
+          id?: string
+          primary_color?: string | null
+          secondary_color?: string | null
+          sidebar_collapsed?: boolean | null
+          tenant_id?: string
+          theme_mode?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       user_profiles: {
         Row: {
@@ -2960,7 +3181,7 @@ export type Database = {
         Returns: undefined
       }
       refresh_dashboard_metrics: {
-        Args: { p_tenant_id: string }
+        Args: { p_tenant_id?: string }
         Returns: undefined
       }
     }

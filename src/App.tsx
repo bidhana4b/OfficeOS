@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth, getRoleDashboardPath } from "@/lib/auth";
+import { ThemeProvider } from "@/lib/theme-context";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import LoginPage from "@/components/auth/LoginPage";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { Dashboard } from "@/components/dashboard";
@@ -18,7 +20,7 @@ function AuthRedirect() {
 function UnauthorizedPage() {
   const { logout } = useAuth();
   return (
-    <div className="h-screen bg-titan-bg flex items-center justify-center p-4">
+    <div className="h-screen bg-background flex items-center justify-center p-4">
       <div className="text-center glass-card p-8 max-w-md">
         <h1 className="font-display font-extrabold text-2xl text-titan-magenta mb-2">
           Access Denied
@@ -41,7 +43,7 @@ function AppRoutes() {
   return (
     <Suspense
       fallback={
-        <div className="h-screen bg-titan-bg flex items-center justify-center">
+        <div className="h-screen bg-background flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-2 border-titan-cyan/30 border-t-titan-cyan rounded-full animate-spin" />
             <p className="font-mono text-xs text-white/30">Loading...</p>
@@ -68,7 +70,7 @@ function AppRoutes() {
         <Route
           path="/dashboard/design"
           element={
-            <ProtectedRoute allowedRoles={["designer"]}>
+            <ProtectedRoute allowedRoles={["designer", "super_admin"]}>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -78,7 +80,7 @@ function AppRoutes() {
         <Route
           path="/dashboard/media"
           element={
-            <ProtectedRoute allowedRoles={["media_buyer"]}>
+            <ProtectedRoute allowedRoles={["media_buyer", "super_admin"]}>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -88,7 +90,7 @@ function AppRoutes() {
         <Route
           path="/dashboard/account"
           element={
-            <ProtectedRoute allowedRoles={["account_manager"]}>
+            <ProtectedRoute allowedRoles={["account_manager", "super_admin"]}>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -98,7 +100,7 @@ function AppRoutes() {
         <Route
           path="/dashboard/finance"
           element={
-            <ProtectedRoute allowedRoles={["finance"]}>
+            <ProtectedRoute allowedRoles={["finance", "super_admin"]}>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -136,9 +138,13 @@ function AppRoutes() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <ThemeProvider>
+          <AppRoutes />
+        </ThemeProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

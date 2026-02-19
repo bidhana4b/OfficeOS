@@ -6,6 +6,7 @@ import {
   UserPlus,
   X,
   Loader2,
+  Database,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TeamDashboardCards from './TeamDashboardCards';
@@ -15,7 +16,7 @@ import TeamMemberProfile from './TeamMemberProfile';
 import { teamsData as mockTeamsData, teamMembersData as mockTeamMembersData, getMembersForTeam } from './mock-data';
 import type { TeamCategory, TeamMember, TeamViewMode } from './types';
 import { useTeams, useTeamMembers, useTeamDashboardSummary } from '@/hooks/useTeam';
-import { createTeamMember } from '@/lib/data-service';
+import { createFullUser, type CreateFullUserRole } from '@/lib/data-service';
 
 export default function TeamHub() {
   const teamsQuery = useTeams();
@@ -82,11 +83,28 @@ export default function TeamHub() {
         .filter((t) => matchingCategories.includes(t.category))
         .map((t) => t.id);
 
-      await createTeamMember({
-        name: addForm.name,
+      // Map primary role to login role
+      const roleMapping: Record<string, CreateFullUserRole> = {
+        'Graphic Designer': 'designer',
+        'Video Editor': 'designer',
+        'Media Buyer': 'media_buyer',
+        'Copywriter': 'designer',
+        'Account Manager': 'account_manager',
+        'SEO Specialist': 'media_buyer',
+        'Social Media Manager': 'media_buyer',
+        'Developer': 'super_admin',
+        'AI Engineer': 'super_admin',
+        'Finance Manager': 'finance',
+        'HR Manager': 'super_admin',
+      };
+
+      // Use createFullUser which creates demo_users + user_profiles + team_members
+      await createFullUser({
+        display_name: addForm.name,
         email: addForm.email,
-        primary_role: addForm.primary_role,
-        work_capacity_hours: addForm.work_capacity_hours,
+        password: '123456',
+        role: roleMapping[addForm.primary_role] || 'designer',
+        primary_role_label: addForm.primary_role,
         team_ids: matchingTeamIds,
       });
 
@@ -131,6 +149,8 @@ export default function TeamHub() {
   const busyCount = allTeamMembers.filter((m) => m.status === 'busy').length;
   const overloadedCount = allTeamMembers.filter((m) => m.currentLoad >= 85).length;
 
+  const isUsingRealData = membersQuery.data.length > 0;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -148,9 +168,18 @@ export default function TeamHub() {
                 <h1 className="font-display font-extrabold text-xl text-white">
                   Team <span className="text-gradient-cyan">Operations</span>
                 </h1>
-                <p className="font-mono-data text-[10px] text-white/30">
-                  Internal operations engine · {totalMembers} members
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono-data text-[10px] text-white/30">
+                    Internal operations engine · {totalMembers} members
+                  </p>
+                  <span className="text-white/10">·</span>
+                  <div className="flex items-center gap-1">
+                    <Database className="w-2.5 h-2.5" style={{ color: isUsingRealData ? '#39FF14' : '#FFB800' }} />
+                    <span className="font-mono-data text-[10px]" style={{ color: isUsingRealData ? '#39FF14' : '#FFB800' }}>
+                      {isUsingRealData ? 'Live DB' : 'Mock'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -427,6 +456,11 @@ export default function TeamHub() {
               </div>
 
               {/* Dialog Footer */}
+              <div className="px-5 py-2.5 bg-titan-cyan/[0.03] border-t border-titan-cyan/10">
+                <p className="font-mono-data text-[10px] text-titan-cyan/50 leading-relaxed">
+                  ✨ Auto-creates: Login Account (password: 123456) · User Profile · Team Assignment · Workspace Membership
+                </p>
+              </div>
               <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/[0.06]">
                 <button
                   onClick={() => setShowAddDialog(false)}

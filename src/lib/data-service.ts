@@ -5,9 +5,39 @@
 
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 
+/**
+ * Configuration: set to false to disable mock data fallbacks
+ * In production, this should be false so errors are visible
+ */
+export const DATA_SERVICE_CONFIG = {
+  enableMockFallback: true,
+  logErrors: true,
+};
+
 function requireSupabaseClient() {
   if (!supabase) throw new Error('Supabase client not initialized. Missing VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY.');
   return supabase;
+}
+
+/**
+ * Utility: safe query wrapper that logs errors and optionally returns fallback
+ */
+export async function safeQuery<T>(
+  queryFn: () => Promise<T>,
+  fallback?: T,
+  context?: string
+): Promise<T> {
+  try {
+    return await queryFn();
+  } catch (error) {
+    if (DATA_SERVICE_CONFIG.logErrors) {
+      console.error(`[DataService${context ? ` — ${context}` : ''}]`, error);
+    }
+    if (fallback !== undefined && DATA_SERVICE_CONFIG.enableMockFallback) {
+      return fallback;
+    }
+    throw error;
+  }
 }
 
 // ============================================
@@ -631,57 +661,6 @@ function formatFileSize(bytes: number): string {
 }
 
 // ============================================
-// CHANNEL MEMBER MANAGEMENT (Legacy)
-// ============================================
-// NOTE: The project has an enhanced channel member API further down in this file.
-// These legacy exports were causing duplicate identifier errors at runtime.
-// They are kept here (non-exported) only for reference.
-
-async function addChannelMemberLegacy(
-  channelId: string,
-  userId: string,
-  userName: string,
-  userAvatar: string,
-  userRole: string
-) {
-  const sb = requireSupabaseClient();
-  const { data, error } = await sb
-    .from('channel_members')
-    .insert({
-      channel_id: channelId,
-      user_id: userId,
-      user_name: userName,
-      user_avatar: userAvatar,
-      user_role: userRole,
-    })
-    .select()
-    .single();
-  if (error && error.code !== '23505') throw error;
-  return data;
-}
-
-async function removeChannelMemberLegacy(channelId: string, userId: string) {
-  const sb = requireSupabaseClient();
-  const { error } = await sb
-    .from('channel_members')
-    .delete()
-    .eq('channel_id', channelId)
-    .eq('user_id', userId);
-  if (error) throw error;
-}
-
-async function getChannelMembersLegacy(channelId: string) {
-  const sb = requireSupabaseClient();
-  const { data, error } = await sb
-    .from('channel_members')
-    .select('*')
-    .eq('channel_id', channelId)
-    .order('joined_at', { ascending: true });
-  if (error) throw error;
-  return data || [];
-}
-
-// ============================================
 // CANNED RESPONSES
 // ============================================
 
@@ -965,6 +944,125 @@ export async function updateInvoiceStatus(id: string, status: string) {
   }
 
   return data;
+}
+
+// ============================================
+// INVOICE FETCHING
+// ============================================
+
+export async function getInvoices(filters?: { status?: string; client_id?: string }) {
+  const sb = requireSupabaseClient();
+  let query = sb
+    .from('invoices')
+    .select('*, clients(business_name)')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .order('created_at', { ascending: false });
+
+  if (filters?.status && filters.status !== 'all') {
+    query = query.eq('status', filters.status);
+  }
+  if (filters?.client_id) {
+    query = query.eq('client_id', filters.client_id);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getInvoiceById(id: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('invoices')
+    .select('*, clients(business_name), invoice_items(*)')
+    .eq('id', id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteInvoice(id: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb.from('invoices').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================
+// CAMPAIGN FETCHING
+// ============================================
+
+export async function getCampaigns(filters?: { status?: string; client_id?: string }) {
+  const sb = requireSupabaseClient();
+  let query = sb
+    .from('campaigns')
+    .select('*, clients(business_name)')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .order('created_at', { ascending: false });
+
+  if (filters?.status && filters.status !== 'all') {
+    query = query.eq('status', filters.status);
+  }
+  if (filters?.client_id) {
+    query = query.eq('client_id', filters.client_id);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateCampaignSpend(id: string, spent: number) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('campaigns')
+    .update({ spent, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCampaign(id: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb.from('campaigns').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================
+// WALLET ADMIN FETCHING
+// ============================================
+
+export async function getAllClientWallets() {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('client_wallets')
+    .select('*, clients(business_name, status)')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getAllWalletTransactions(limit = 50) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('wallet_transactions')
+    .select('*, client_wallets(client_id, clients(business_name))')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getClientListForSelect() {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('clients')
+    .select('id, business_name')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .order('business_name');
+  if (error) throw error;
+  return data || [];
 }
 
 // ============================================
@@ -1545,6 +1643,740 @@ export async function getSystemHealth() {
     packageUsageItems: usage.length,
     totalWalletBalance: wallets.reduce((sum: number, w: Record<string, unknown>) => sum + Number(w.balance || 0), 0),
   };
+}
+
+// ============================================
+// FULL USER MANAGEMENT (Phase 2)
+// ============================================
+
+export type CreateFullUserRole = 'super_admin' | 'designer' | 'media_buyer' | 'account_manager' | 'finance' | 'client';
+
+export interface CreateFullUserInput {
+  display_name: string;
+  email: string;
+  password: string;
+  role: CreateFullUserRole;
+  avatar?: string;
+  phone?: string;
+  client_id?: string | null;
+  primary_role_label?: string;
+  team_ids?: string[];
+  metadata?: Record<string, string>;
+}
+
+export interface CreateFullUserResult {
+  demo_user: Record<string, unknown>;
+  user_profile: Record<string, unknown>;
+  team_member: Record<string, unknown> | null;
+}
+
+/**
+ * Creates a fully-linked user across demo_users, user_profiles,
+ * team_members (if staff), user_roles, and workspace_members.
+ */
+export async function createFullUser(input: CreateFullUserInput): Promise<CreateFullUserResult> {
+  const sb = requireSupabaseClient();
+
+  // 1. Create user_profile
+  const { data: profile, error: profileErr } = await sb
+    .from('user_profiles')
+    .insert({
+      tenant_id: DEMO_TENANT_ID,
+      full_name: input.display_name,
+      email: input.email.toLowerCase().trim(),
+      avatar: input.avatar || input.display_name.substring(0, 2).toUpperCase(),
+      phone: input.phone || null,
+      status: 'active',
+    })
+    .select()
+    .single();
+
+  if (profileErr) throw profileErr;
+
+  // 2. Assign role in user_roles table
+  // Find or create the role entry
+  const { data: roleData } = await sb
+    .from('roles')
+    .select('id')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .ilike('name', `%${getRoleName(input.role)}%`)
+    .limit(1)
+    .single();
+
+  if (roleData) {
+    await sb.from('user_roles').insert({
+      user_id: profile.id,
+      role_id: roleData.id,
+    }).then(() => {
+      // Update role user_count
+      sb.from('roles')
+        .update({ user_count: (roleData as any).user_count ? (roleData as any).user_count + 1 : 1 })
+        .eq('id', roleData.id);
+    });
+  }
+
+  // 3. Create team_member (for non-client roles)
+  let teamMember: Record<string, unknown> | null = null;
+  if (input.role !== 'client') {
+    const { data: member, error: memberErr } = await sb
+      .from('team_members')
+      .insert({
+        tenant_id: DEMO_TENANT_ID,
+        user_profile_id: profile.id,
+        name: input.display_name,
+        email: input.email.toLowerCase().trim(),
+        avatar: input.avatar || input.display_name.substring(0, 2).toUpperCase(),
+        primary_role: input.primary_role_label || getRoleName(input.role),
+        secondary_roles: [],
+        work_capacity_hours: 8,
+        status: 'online',
+        current_load: 0,
+        active_deliverables: 0,
+        boost_campaigns: 0,
+        tasks_completed_this_month: 0,
+        join_date: new Date().toISOString().split('T')[0],
+      })
+      .select()
+      .single();
+
+    if (memberErr) throw memberErr;
+    teamMember = member;
+
+    // Link to teams
+    if (input.team_ids && input.team_ids.length > 0) {
+      const teamLinks = input.team_ids.map((teamId) => ({
+        team_member_id: member.id,
+        team_id: teamId,
+      }));
+      await sb.from('team_member_teams').insert(teamLinks);
+    }
+
+    // Add to all client workspaces as a workspace member
+    const { data: workspaces } = await sb
+      .from('workspaces')
+      .select('id')
+      .eq('tenant_id', DEMO_TENANT_ID);
+
+    if (workspaces && workspaces.length > 0) {
+      const wsMembers = workspaces.map((ws: any) => ({
+        workspace_id: ws.id,
+        user_profile_id: profile.id,
+        name: input.display_name,
+        avatar: input.avatar || input.display_name.substring(0, 2).toUpperCase(),
+        role: input.role === 'super_admin' ? 'admin' : 'member',
+        status: 'online',
+      }));
+      // Use upsert to avoid duplicates
+      await sb.from('workspace_members').upsert(wsMembers, { onConflict: 'workspace_id,user_profile_id' });
+    }
+  }
+
+  // 4. Create demo_users entry (login)
+  const { data: demoUser, error: demoErr } = await sb
+    .from('demo_users')
+    .insert({
+      tenant_id: DEMO_TENANT_ID,
+      email: input.email.toLowerCase().trim(),
+      password_hash: input.password,
+      display_name: input.display_name,
+      role: input.role,
+      avatar: input.avatar || input.display_name.substring(0, 2).toUpperCase(),
+      client_id: input.client_id || null,
+      user_profile_id: profile.id,
+      team_member_id: teamMember ? (teamMember as any).id : null,
+      metadata: input.metadata || {},
+      is_active: true,
+    })
+    .select()
+    .single();
+
+  if (demoErr) throw demoErr;
+
+  // 5. Log activity
+  await sb.from('activities').insert({
+    tenant_id: DEMO_TENANT_ID,
+    type: 'user_created',
+    title: `New User: ${input.display_name}`,
+    description: `${getRoleName(input.role)} account created`,
+    timestamp: new Date().toISOString(),
+    metadata: { email: input.email, role: input.role },
+  });
+
+  return { demo_user: demoUser, user_profile: profile, team_member: teamMember };
+}
+
+function getRoleName(role: CreateFullUserRole): string {
+  switch (role) {
+    case 'super_admin': return 'Super Admin';
+    case 'designer': return 'Designer';
+    case 'media_buyer': return 'Media Buyer';
+    case 'account_manager': return 'Account Manager';
+    case 'finance': return 'Finance';
+    case 'client': return 'Client';
+    default: return role;
+  }
+}
+
+/**
+ * Deactivate a user across all linked tables.
+ */
+export async function deactivateUser(demoUserId: string) {
+  const sb = requireSupabaseClient();
+
+  // Get the demo user to find linked IDs
+  const { data: demoUser, error } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('id', demoUserId)
+    .single();
+
+  if (error) throw error;
+
+  // Deactivate demo_users entry
+  await sb.from('demo_users').update({ is_active: false }).eq('id', demoUserId);
+
+  // Deactivate user_profile
+  if (demoUser.user_profile_id) {
+    await sb.from('user_profiles').update({ status: 'inactive', updated_at: new Date().toISOString() }).eq('id', demoUser.user_profile_id);
+  }
+
+  // Set team member offline
+  if (demoUser.team_member_id) {
+    await sb.from('team_members').update({ status: 'offline' }).eq('id', demoUser.team_member_id);
+  }
+
+  return demoUser;
+}
+
+/**
+ * Reactivate a user.
+ */
+export async function reactivateUser(demoUserId: string) {
+  const sb = requireSupabaseClient();
+
+  const { data: demoUser, error } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('id', demoUserId)
+    .single();
+
+  if (error) throw error;
+
+  await sb.from('demo_users').update({ is_active: true }).eq('id', demoUserId);
+
+  if (demoUser.user_profile_id) {
+    await sb.from('user_profiles').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', demoUser.user_profile_id);
+  }
+
+  if (demoUser.team_member_id) {
+    await sb.from('team_members').update({ status: 'online' }).eq('id', demoUser.team_member_id);
+  }
+
+  return demoUser;
+}
+
+/**
+ * Get all users with their linked profiles.
+ */
+export async function getAllUsers() {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get all users with detailed linked data (profile, team member, roles).
+ */
+export async function getAllUsersDetailed(): Promise<DetailedUser[]> {
+  const sb = requireSupabaseClient();
+
+  const { data: demoUsers, error } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  if (!demoUsers || demoUsers.length === 0) return [];
+
+  // Fetch linked profiles
+  const profileIds = demoUsers.map((u: any) => u.user_profile_id).filter(Boolean);
+  let profiles: Record<string, any> = {};
+  if (profileIds.length > 0) {
+    const { data: profileData } = await sb
+      .from('user_profiles')
+      .select('*, user_roles(role:roles(name))')
+      .in('id', profileIds);
+
+    if (profileData) {
+      profiles = profileData.reduce((acc: any, p: any) => { acc[p.id] = p; return acc; }, {});
+    }
+  }
+
+  // Fetch linked team members
+  const tmIds = demoUsers.map((u: any) => u.team_member_id).filter(Boolean);
+  let teamMembers: Record<string, any> = {};
+  if (tmIds.length > 0) {
+    const { data: tmData } = await sb
+      .from('team_members')
+      .select('*')
+      .in('id', tmIds);
+
+    if (tmData) {
+      teamMembers = tmData.reduce((acc: any, t: any) => { acc[t.id] = t; return acc; }, {});
+    }
+  }
+
+  return demoUsers.map((du: any) => {
+    const profile = du.user_profile_id ? profiles[du.user_profile_id] : null;
+    const tm = du.team_member_id ? teamMembers[du.team_member_id] : null;
+    const userRoles = profile?.user_roles || [];
+    const roleName = userRoles.length > 0
+      ? userRoles[0]?.role?.name || getRoleName(du.role)
+      : getRoleName(du.role);
+
+    return {
+      id: du.id,
+      email: du.email,
+      display_name: du.display_name,
+      role: du.role,
+      role_label: roleName,
+      avatar: du.avatar || '',
+      is_active: du.is_active ?? true,
+      client_id: du.client_id,
+      user_profile_id: du.user_profile_id,
+      team_member_id: du.team_member_id,
+      last_login_at: du.last_login_at || null,
+      password_changed_at: du.password_changed_at || null,
+      created_at: du.created_at,
+      profile_status: profile?.status || (du.is_active ? 'active' : 'inactive'),
+      team_member_status: tm?.status || null,
+      team_member_name: tm?.name || null,
+      team_member_role: tm?.primary_role || null,
+      has_profile: !!du.user_profile_id,
+      has_team_member: !!du.team_member_id,
+    };
+  });
+}
+
+export interface DetailedUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: CreateFullUserRole;
+  role_label: string;
+  avatar: string;
+  is_active: boolean;
+  client_id: string | null;
+  user_profile_id: string | null;
+  team_member_id: string | null;
+  last_login_at: string | null;
+  password_changed_at: string | null;
+  created_at: string;
+  profile_status: string;
+  team_member_status: string | null;
+  team_member_name: string | null;
+  team_member_role: string | null;
+  has_profile: boolean;
+  has_team_member: boolean;
+}
+
+/**
+ * Update a user's info across all linked tables.
+ */
+export async function updateUser(demoUserId: string, updates: {
+  display_name?: string;
+  email?: string;
+  role?: CreateFullUserRole;
+  phone?: string;
+  avatar?: string;
+}) {
+  const sb = requireSupabaseClient();
+
+  // Get current demo user
+  const { data: du, error: fetchErr } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('id', demoUserId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  // Update demo_users
+  const demoUpdate: any = {};
+  if (updates.display_name) demoUpdate.display_name = updates.display_name;
+  if (updates.email) demoUpdate.email = updates.email.toLowerCase().trim();
+  if (updates.role) demoUpdate.role = updates.role;
+  if (updates.avatar) demoUpdate.avatar = updates.avatar;
+
+  if (Object.keys(demoUpdate).length > 0) {
+    const { error } = await sb.from('demo_users').update(demoUpdate).eq('id', demoUserId);
+    if (error) throw error;
+  }
+
+  // Update user_profile
+  if (du.user_profile_id) {
+    const profileUpdate: any = {};
+    if (updates.display_name) profileUpdate.full_name = updates.display_name;
+    if (updates.email) profileUpdate.email = updates.email.toLowerCase().trim();
+    if (updates.phone) profileUpdate.phone = updates.phone;
+    if (updates.avatar) profileUpdate.avatar = updates.avatar;
+    profileUpdate.updated_at = new Date().toISOString();
+
+    if (Object.keys(profileUpdate).length > 1) {
+      await sb.from('user_profiles').update(profileUpdate).eq('id', du.user_profile_id);
+    }
+  }
+
+  // Update team_member
+  if (du.team_member_id) {
+    const tmUpdate: any = {};
+    if (updates.display_name) tmUpdate.name = updates.display_name;
+    if (updates.email) tmUpdate.email = updates.email.toLowerCase().trim();
+    if (updates.avatar) tmUpdate.avatar = updates.avatar;
+    if (updates.role) tmUpdate.primary_role = getRoleName(updates.role);
+
+    if (Object.keys(tmUpdate).length > 0) {
+      await sb.from('team_members').update(tmUpdate).eq('id', du.team_member_id);
+    }
+  }
+
+  // Log activity
+  await sb.from('activities').insert({
+    tenant_id: DEMO_TENANT_ID,
+    type: 'user_updated',
+    title: `User Updated: ${updates.display_name || du.display_name}`,
+    description: `Account info updated`,
+    timestamp: new Date().toISOString(),
+    metadata: { user_id: demoUserId },
+  });
+
+  return du;
+}
+
+/**
+ * Reset a user's password.
+ */
+export async function resetUserPassword(demoUserId: string, newPassword: string) {
+  const sb = requireSupabaseClient();
+
+  const { error } = await sb
+    .from('demo_users')
+    .update({
+      password_hash: newPassword,
+      password_changed_at: new Date().toISOString(),
+    })
+    .eq('id', demoUserId);
+
+  if (error) throw error;
+
+  // Log activity
+  await sb.from('activities').insert({
+    tenant_id: DEMO_TENANT_ID,
+    type: 'password_reset',
+    title: 'Password Reset',
+    description: `Password was reset for user`,
+    timestamp: new Date().toISOString(),
+    metadata: { user_id: demoUserId },
+  });
+}
+
+/**
+ * Permanently delete a user and all linked records.
+ */
+export async function deleteUser(demoUserId: string) {
+  const sb = requireSupabaseClient();
+
+  // Get demo user
+  const { data: du, error: fetchErr } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('id', demoUserId)
+    .single();
+
+  if (fetchErr) throw fetchErr;
+
+  // Delete workspace_members entries
+  if (du.user_profile_id) {
+    await sb.from('workspace_members').delete().eq('user_profile_id', du.user_profile_id);
+  }
+
+  // Delete user_roles entries
+  if (du.user_profile_id) {
+    await sb.from('user_roles').delete().eq('user_id', du.user_profile_id);
+  }
+
+  // Delete team_member_teams entries
+  if (du.team_member_id) {
+    await sb.from('team_member_teams').delete().eq('team_member_id', du.team_member_id);
+  }
+
+  // Delete team_member
+  if (du.team_member_id) {
+    await sb.from('team_members').delete().eq('id', du.team_member_id);
+  }
+
+  // Delete user_profile
+  if (du.user_profile_id) {
+    await sb.from('user_profiles').delete().eq('id', du.user_profile_id);
+  }
+
+  // Delete demo_user
+  await sb.from('demo_users').delete().eq('id', demoUserId);
+
+  // Log activity
+  await sb.from('activities').insert({
+    tenant_id: DEMO_TENANT_ID,
+    type: 'user_deleted',
+    title: `User Deleted: ${du.display_name}`,
+    description: `Account and all linked data permanently removed`,
+    timestamp: new Date().toISOString(),
+    metadata: { email: du.email, role: du.role },
+  });
+
+  return du;
+}
+
+// ============================================
+// CLIENT ONBOARDING (Phase 3)
+// ============================================
+
+export interface OnboardClientInput {
+  // Step 1: Business Info (matches Google Form: প্রতিষ্ঠানের তথ্য)
+  business_name: string;
+  category?: string;
+  location?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  contact_website?: string;
+  // Owner Info (Google Form: মালিকের তথ্য)
+  owner_name?: string;
+  owner_phone?: string;
+  // Manager/Contact Person (Google Form: ম্যানেজার/যোগাযোগকারীর তথ্য)
+  manager_name?: string;
+  manager_phone?: string;
+  // Step 2: Package Selection (Google Form: প্যাকেজ)
+  package_id?: string;
+  // Step 3: Boost Budget (Google Form: ফেসবুক বুস্ট বাজেট)
+  monthly_boost_budget?: number;
+  boost_budget_currency?: string;
+  // Step 4: Team Assignment
+  account_manager_id?: string;
+  // Step 5: Portal Access
+  create_login?: boolean;
+  login_password?: string;
+  // Referral (Google Form: রেফারকারীর নাম)
+  referrer_name?: string;
+  // Notes
+  onboarding_notes?: string;
+}
+
+export interface OnboardClientResult {
+  client: Record<string, unknown>;
+  wallet: Record<string, unknown> | null;
+  workspace: Record<string, unknown> | null;
+  channels: Record<string, unknown>[];
+  demo_user: Record<string, unknown> | null;
+  client_package: Record<string, unknown> | null;
+}
+
+/**
+ * Full client onboarding: creates client + wallet + workspace + channels + login + package assignment.
+ * Note: wallet and workspace are auto-created by DB triggers, but we fetch them to return.
+ */
+export async function onboardClient(input: OnboardClientInput): Promise<OnboardClientResult> {
+  const sb = requireSupabaseClient();
+
+  // Build metadata for extra fields from the onboarding form
+  const metadata: Record<string, unknown> = {};
+  if (input.owner_name) metadata.owner_name = input.owner_name;
+  if (input.owner_phone) metadata.owner_phone = input.owner_phone;
+  if (input.manager_name) metadata.manager_name = input.manager_name;
+  if (input.manager_phone) metadata.manager_phone = input.manager_phone;
+  if (input.monthly_boost_budget) metadata.monthly_boost_budget = input.monthly_boost_budget;
+  if (input.boost_budget_currency) metadata.boost_budget_currency = input.boost_budget_currency;
+  if (input.referrer_name) metadata.referrer_name = input.referrer_name;
+  if (input.onboarding_notes) metadata.onboarding_notes = input.onboarding_notes;
+
+  // 1. Create client (triggers auto-create wallet + workspace + channels)
+  const { data: client, error: clientErr } = await sb
+    .from('clients')
+    .insert({
+      tenant_id: DEMO_TENANT_ID,
+      business_name: input.business_name,
+      category: input.category || 'Other',
+      location: input.location || null,
+      contact_email: input.contact_email || null,
+      contact_phone: input.contact_phone || input.owner_phone || null,
+      contact_website: input.contact_website || null,
+      account_manager_id: input.account_manager_id || null,
+      status: 'active',
+      health_score: 100,
+      owner_name: input.owner_name || null,
+      owner_phone: input.owner_phone || null,
+      manager_name: input.manager_name || null,
+      manager_phone: input.manager_phone || null,
+      monthly_boost_budget: input.monthly_boost_budget || 0,
+      boost_budget_currency: input.boost_budget_currency || 'USD',
+      referrer_name: input.referrer_name || null,
+      onboarding_notes: input.onboarding_notes || null,
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    })
+    .select()
+    .single();
+
+  if (clientErr) throw clientErr;
+
+  // Small delay to let triggers complete
+  await new Promise((r) => setTimeout(r, 500));
+
+  // 2. Fetch auto-created wallet
+  const { data: wallet } = await sb
+    .from('client_wallets')
+    .select('*')
+    .eq('client_id', client.id)
+    .single();
+
+  // 3. Fetch auto-created workspace
+  const { data: workspace } = await sb
+    .from('workspaces')
+    .select('*')
+    .eq('client_id', client.id)
+    .single();
+
+  // 4. Fetch auto-created channels
+  let channels: Record<string, unknown>[] = [];
+  if (workspace) {
+    const { data: chans } = await sb
+      .from('channels')
+      .select('*')
+      .eq('workspace_id', workspace.id);
+    channels = chans || [];
+
+    // Add account manager as workspace member if set
+    if (input.account_manager_id) {
+      const { data: manager } = await sb
+        .from('team_members')
+        .select('id, name, avatar, user_profile_id')
+        .eq('id', input.account_manager_id)
+        .single();
+
+      if (manager && manager.user_profile_id) {
+        await sb.from('workspace_members').upsert({
+          workspace_id: workspace.id,
+          user_profile_id: manager.user_profile_id,
+          name: manager.name,
+          avatar: manager.avatar || '',
+          role: 'admin',
+          status: 'online',
+        }, { onConflict: 'workspace_id,user_profile_id' });
+      }
+    }
+  }
+
+  // 5. Create client login account if requested
+  let demoUser: Record<string, unknown> | null = null;
+  if (input.create_login && input.contact_email) {
+    try {
+      const result = await createFullUser({
+        display_name: input.business_name,
+        email: input.contact_email,
+        password: input.login_password || '123456',
+        role: 'client',
+        client_id: client.id,
+        metadata: {
+          business_name: input.business_name,
+          category: input.category || 'Other',
+        },
+      });
+      demoUser = result.demo_user;
+    } catch (e) {
+      console.warn('Could not create client login:', e);
+    }
+  }
+
+  // 6. Assign package if provided
+  let clientPackage: Record<string, unknown> | null = null;
+  if (input.package_id) {
+    try {
+      const { data: cp, error: cpErr } = await sb
+        .from('client_packages')
+        .insert({
+          client_id: client.id,
+          package_id: input.package_id,
+          is_active: true,
+          start_date: new Date().toISOString().split('T')[0],
+          renewal_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        })
+        .select()
+        .single();
+
+      if (!cpErr) clientPackage = cp;
+    } catch (e) {
+      console.warn('Could not assign package:', e);
+    }
+  }
+
+  return {
+    client,
+    wallet,
+    workspace,
+    channels,
+    demo_user: demoUser,
+    client_package: clientPackage,
+  };
+}
+
+// ============================================
+// NOTIFICATION MANAGEMENT
+// ============================================
+
+export async function markNotificationAsRead(notificationId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('notifications')
+    .update({ read: true })
+    .eq('id', notificationId);
+
+  if (error) throw error;
+}
+
+export async function markAllNotificationsAsRead() {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('notifications')
+    .update({ read: true })
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('read', false);
+
+  if (error) throw error;
+}
+
+export async function deleteNotification(notificationId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('notifications')
+    .delete()
+    .eq('id', notificationId);
+
+  if (error) throw error;
+}
+
+export async function clearAllNotifications() {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('notifications')
+    .delete()
+    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('read', true);
+
+  if (error) throw error;
 }
 
 // ============================================
