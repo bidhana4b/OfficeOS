@@ -13,7 +13,6 @@ import TeamDashboardCards from './TeamDashboardCards';
 import TeamCards from './TeamCards';
 import TeamMemberList from './TeamMemberList';
 import TeamMemberProfile from './TeamMemberProfile';
-import { teamsData as mockTeamsData, teamMembersData as mockTeamMembersData, getMembersForTeam } from './mock-data';
 import type { TeamCategory, TeamMember, TeamViewMode } from './types';
 import { useTeams, useTeamMembers, useTeamDashboardSummary } from '@/hooks/useTeam';
 import { createFullUser, type CreateFullUserRole } from '@/lib/data-service';
@@ -22,8 +21,8 @@ export default function TeamHub() {
   const teamsQuery = useTeams();
   const membersQuery = useTeamMembers();
   const summaryQuery = useTeamDashboardSummary();
-  const teamsData = teamsQuery.data.length > 0 ? teamsQuery.data : mockTeamsData;
-  const allTeamMembers = membersQuery.data.length > 0 ? membersQuery.data : mockTeamMembersData;
+  const teamsData = teamsQuery.data.length > 0 ? teamsQuery.data : [];
+  const allTeamMembers = membersQuery.data.length > 0 ? membersQuery.data : [];
 
   const [selectedTeam, setSelectedTeam] = useState<TeamCategory | null>(null);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
@@ -124,11 +123,8 @@ export default function TeamHub() {
 
   const teamMembers = useMemo(() => {
     if (!selectedTeam) return [];
-    if (membersQuery.data.length > 0) {
-      return allTeamMembers.filter((m) => m.belongsToTeams.includes(selectedTeam as any));
-    }
-    return getMembersForTeam(selectedTeam);
-  }, [selectedTeam, membersQuery.data, allTeamMembers]);
+    return allTeamMembers.filter((m) => m.belongsToTeams.includes(selectedTeam as any));
+  }, [selectedTeam, allTeamMembers]);
 
   // Global search across all members (from grid view)
   const globalSearchResults = useMemo(() => {

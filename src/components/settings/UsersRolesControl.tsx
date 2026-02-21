@@ -31,7 +31,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { roles as mockRoles } from './mock-data';
+import { roles as mockRoles } from './defaults';
 import type { Role } from './types';
 import { useRoles } from '@/hooks/useSettings';
 import { useUserManagement } from '@/hooks/useUserManagement';
@@ -61,7 +61,7 @@ export default function UsersRolesControl() {
         }, {}),
         userCount: (r.user_count as number) || 0,
       }))
-    : mockRoles;
+    : [];
 
   // State
   const [selectedRole, setSelectedRole] = useState<string | null>(null);

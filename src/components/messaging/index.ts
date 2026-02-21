@@ -7,3 +7,4 @@ export { default as BoostWizard } from './BoostWizard';
 export { default as CreateChannelModal } from './CreateChannelModal';
 export { default as AddMemberModal } from './AddMemberModal';
 export { default as QuickActionsManager } from './QuickActionsManager';
+export { default as ChannelSettingsPanel } from './ChannelSettingsPanel';

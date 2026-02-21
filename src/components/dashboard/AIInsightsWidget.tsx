@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Brain, AlertTriangle, TrendingUp, Lightbulb, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { aiInsightsData as mockAiInsightsData } from './mock-data';
 import type { AIInsight } from './types';
 import { getAIApiKeys, generateDashboardInsights } from '@/lib/ai-service';
 
@@ -40,7 +39,7 @@ export default function AIInsightsWidget({ data, loading, dashboardData }: AIIns
   const [isAILoading, setIsAILoading] = useState(false);
   const [isAIPowered, setIsAIPowered] = useState(false);
 
-  const aiInsightsData = aiInsights.length > 0 ? aiInsights : (data && data.length > 0 ? data : mockAiInsightsData);
+  const aiInsightsData = aiInsights.length > 0 ? aiInsights : (data && data.length > 0 ? data : []);
 
   useEffect(() => {
     let cancelled = false;

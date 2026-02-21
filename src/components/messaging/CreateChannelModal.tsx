@@ -38,12 +38,8 @@ export default function CreateChannelModal({
   const loadAvailableMembers = async () => {
     try {
       // For new channel, pass empty string as channelId
-      const { data: workspaceMembers } = await window.supabase
-        .from('workspace_members')
-        .select('user_profile_id, name, avatar, role')
-        .eq('workspace_id', workspaceId);
-
-      setAvailableMembers(workspaceMembers || []);
+      const members = await getAvailableMembersForChannel(workspaceId, '');
+      setAvailableMembers(members || []);
     } catch (err) {
       console.error('Failed to load members:', err);
     }

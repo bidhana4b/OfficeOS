@@ -105,9 +105,9 @@ export default function ClientDashboard() {
         </AnimatePresence>
       </div>
 
-      {/* Bottom Navigation Bar */}
-      <div className="shrink-0 border-t border-white/[0.06] bg-titan-bg/95 backdrop-blur-xl">
-        <div className="flex items-center justify-around px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+      {/* Bottom Navigation Bar — properly responsive */}
+      <div className="shrink-0 border-t border-white/[0.06] bg-titan-bg/95 backdrop-blur-xl safe-bottom">
+        <div className="flex items-center justify-around px-1 sm:px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -119,14 +119,14 @@ export default function ClientDashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 active:scale-[0.92] ${
+                className={`relative flex flex-col items-center gap-0.5 px-2 sm:px-3 py-1.5 rounded-xl transition-all duration-200 active:scale-[0.92] ${
                   isActive ? 'text-titan-cyan' : 'text-white/30'
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="bottomNavIndicator"
-                    className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-titan-cyan"
+                    className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-5 sm:w-6 h-0.5 rounded-full bg-titan-cyan"
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
@@ -138,7 +138,7 @@ export default function ClientDashboard() {
                     </span>
                   )}
                 </div>
-                <span className={`text-[10px] font-mono transition-all duration-200 ${isActive ? 'font-semibold' : ''}`}>
+                <span className={`text-[9px] sm:text-[10px] font-mono transition-all duration-200 ${isActive ? 'font-semibold' : ''}`}>
                   {tab.label}
                 </span>
               </button>

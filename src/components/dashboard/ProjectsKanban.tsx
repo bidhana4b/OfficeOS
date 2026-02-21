@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FolderKanban, Clock, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { projectsData as mockProjectsData } from './mock-data';
 import type { ProjectCard } from './types';
 
 interface ProjectsKanbanProps {
@@ -81,7 +80,7 @@ function ProjectCardItem({ project }: { project: ProjectCard }) {
 }
 
 export default function ProjectsKanban({ data, loading }: ProjectsKanbanProps) {
-  const projectsData = data && data.length > 0 ? data : mockProjectsData;
+  const projectsData = data && data.length > 0 ? data : [];
   const getProjectsByStatus = (status: string) => projectsData.filter(p => p.status === status);
   
   return (

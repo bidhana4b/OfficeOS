@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SettingsSection } from './types';
-import { changeLog as mockChangeLog } from './mock-data';
+import { changeLog as mockChangeLog } from './defaults';
 import { useChangeLog } from '@/hooks/useSettings';
 import OrganizationControl from './OrganizationControl';
 import UsersRolesControl from './UsersRolesControl';
@@ -69,7 +69,7 @@ export default function SettingsHub() {
         section: (r.section as string) || '',
         timestamp: (r.created_at as string) || '',
       }))
-    : mockChangeLog;
+    : [];
 
   const [activeSection, setActiveSection] = useState<SettingsSection>('organization');
   const [showHistory, setShowHistory] = useState(false);

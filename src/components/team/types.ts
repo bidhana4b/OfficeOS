@@ -94,3 +94,17 @@ export interface TeamDashboardSummary {
 }
 
 export type TeamViewMode = 'grid' | 'list' | 'member-detail';
+
+// Team category display labels
+export const teamCategoryLabels: Record<string, string> = {
+  creative: 'Creative Team',
+  'video-production': 'Video Production',
+  'media-buying': 'Media Buying',
+  'content-copy': 'Content & Copy',
+  'client-management': 'Client Management',
+  'strategy-research': 'Strategy & Research',
+  'hr-admin': 'HR & Admin',
+  'accounts-finance': 'Accounts & Finance',
+  'automation-ai': 'Automation / AI',
+  'tech-development': 'Tech & Development',
+};

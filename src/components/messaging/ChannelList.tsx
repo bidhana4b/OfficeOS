@@ -18,6 +18,7 @@ import type { Channel, Workspace, User } from './types';
 import CreateChannelModal from './CreateChannelModal';
 import AddMemberModal from './AddMemberModal';
 import QuickActionsManager from './QuickActionsManager';
+import ChannelSettingsPanel from './ChannelSettingsPanel';
 
 interface ChannelListProps {
   workspace: Workspace;
@@ -58,16 +59,45 @@ export default function ChannelList({
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsChannel, setSettingsChannel] = useState<Channel | null>(null);
   const [selectedChannelForMembers, setSelectedChannelForMembers] = useState<string | null>(null);
 
   const visibleChannels = workspace.channels.filter((ch) => {
     // Internal channels only visible to non-client roles
     if (ch.type === 'internal' && currentUserRole === 'client') return false;
+    // Hide archived channels
+    if (ch.isArchived) return false;
     return true;
   });
 
-  const standardChannels = visibleChannels.filter((ch) => ch.type !== 'custom');
-  const customChannels = visibleChannels.filter((ch) => ch.type === 'custom');
+  const standardChannels = visibleChannels
+    .filter((ch) => ch.type !== 'custom')
+    .sort((a, b) => {
+      // Channels with unread messages come first
+      if (a.unreadCount !== b.unreadCount) return b.unreadCount - a.unreadCount;
+      // Then by last message timestamp (most recent first)
+      const tsA = (a as any).lastMessageTimestamp;
+      const tsB = (b as any).lastMessageTimestamp;
+      if (tsA && tsB) {
+        const diff = new Date(tsB).getTime() - new Date(tsA).getTime();
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    });
+
+  const customChannels = visibleChannels
+    .filter((ch) => ch.type === 'custom')
+    .sort((a, b) => {
+      if (a.unreadCount !== b.unreadCount) return b.unreadCount - a.unreadCount;
+      const tsA = (a as any).lastMessageTimestamp;
+      const tsB = (b as any).lastMessageTimestamp;
+      if (tsA && tsB) {
+        const diff = new Date(tsB).getTime() - new Date(tsA).getTime();
+        if (diff !== 0) return diff;
+      }
+      return a.name.localeCompare(b.name);
+    });
 
   const handleAddMembersClick = (channelId: string) => {
     setSelectedChannelForMembers(channelId);
@@ -105,7 +135,15 @@ export default function ChannelList({
           >
             <Zap className="w-3.5 h-3.5" />
           </button>
-          <button className="p-1 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all">
+          <button 
+            onClick={() => {
+              const ch = workspace.channels.find((c) => c.id === activeChannelId) || null;
+              setSettingsChannel(ch);
+              setSettingsOpen(true);
+            }}
+            className="p-1 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all"
+            title="Channel Settings"
+          >
             <Settings className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -190,43 +228,56 @@ export default function ChannelList({
             const colorClass = channelColors[channel.type] || 'text-white/50';
 
             return (
-              <button
-                key={channel.id}
-                onClick={() => onSelectChannel(channel)}
-                className={cn(
-                  'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-150 group relative',
-                  isActive
-                    ? 'bg-white/[0.08] border border-white/[0.1]'
-                    : 'hover:bg-white/[0.04] border border-transparent'
-                )}
-              >
-                {isActive && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 rounded-r-full bg-titan-cyan" />
-                )}
-                <Icon
+              <div key={channel.id} className="relative group">
+                <button
+                  onClick={() => onSelectChannel(channel)}
                   className={cn(
-                    'w-3.5 h-3.5 shrink-0',
-                    isActive ? colorClass : 'text-white/30 group-hover:text-white/50'
-                  )}
-                />
-                <span
-                  className={cn(
-                    'font-mono-data text-[11px] truncate flex-1 text-left',
-                    isActive ? 'text-white' : 'text-white/50 group-hover:text-white/70',
-                    channel.unreadCount > 0 && 'font-semibold'
+                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-150 relative',
+                    isActive
+                      ? 'bg-white/[0.08] border border-white/[0.1]'
+                      : 'hover:bg-white/[0.04] border border-transparent'
                   )}
                 >
-                  {channel.name}
-                </span>
-                {channel.type === 'internal' && (
-                  <Lock className="w-2.5 h-2.5 text-yellow-400/50" />
-                )}
-                {channel.unreadCount > 0 && (
-                  <span className="min-w-[16px] h-4 rounded-full bg-titan-cyan/20 text-titan-cyan font-mono-data text-[9px] font-bold flex items-center justify-center px-1">
-                    {channel.unreadCount}
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 rounded-r-full bg-titan-cyan" />
+                  )}
+                  <Icon
+                    className={cn(
+                      'w-3.5 h-3.5 shrink-0',
+                      isActive ? colorClass : 'text-white/30 group-hover:text-white/50'
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      'font-mono-data text-[11px] truncate flex-1 text-left',
+                      isActive ? 'text-white' : 'text-white/50 group-hover:text-white/70',
+                      channel.unreadCount > 0 && 'font-semibold'
+                    )}
+                  >
+                    {channel.name}
                   </span>
-                )}
-              </button>
+                  {channel.type === 'internal' && (
+                    <Lock className="w-2.5 h-2.5 text-yellow-400/50" />
+                  )}
+                  {channel.unreadCount > 0 && (
+                    <span className="min-w-[16px] h-4 rounded-full bg-titan-cyan/20 text-titan-cyan font-mono-data text-[9px] font-bold flex items-center justify-center px-1">
+                      {channel.unreadCount}
+                    </span>
+                  )}
+                </button>
+                {/* Per-channel settings gear icon (visible on hover) */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSettingsChannel(channel);
+                    setSettingsOpen(true);
+                  }}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-white/[0.08] text-white/0 group-hover:text-white/30 hover:!text-white/60 transition-all z-10"
+                  title={`Settings for #${channel.name}`}
+                >
+                  <Settings className="w-3 h-3" />
+                </button>
+              </div>
             );
           })}
         </div>
@@ -242,19 +293,31 @@ export default function ChannelList({
             {customChannels.map((channel) => {
               const isActive = activeChannelId === channel.id;
               return (
-                <button
-                  key={channel.id}
-                  onClick={() => onSelectChannel(channel)}
-                  className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all',
-                    isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
-                  )}
-                >
-                  <Hash className="w-3.5 h-3.5 text-white/30" />
-                  <span className="font-mono-data text-[11px] text-white/50 truncate">
-                    {channel.name}
-                  </span>
-                </button>
+                <div key={channel.id} className="relative group">
+                  <button
+                    onClick={() => onSelectChannel(channel)}
+                    className={cn(
+                      'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all',
+                      isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
+                    )}
+                  >
+                    <Hash className="w-3.5 h-3.5 text-white/30" />
+                    <span className="font-mono-data text-[11px] text-white/50 truncate">
+                      {channel.name}
+                    </span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSettingsChannel(channel);
+                      setSettingsOpen(true);
+                    }}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-white/[0.08] text-white/0 group-hover:text-white/30 hover:!text-white/60 transition-all z-10"
+                    title={`Settings for #${channel.name}`}
+                  >
+                    <Settings className="w-3 h-3" />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -303,6 +366,20 @@ export default function ChannelList({
         onClose={() => setQuickActionsOpen(false)}
         userRole={currentUserRole}
         onActionsUpdated={handleChannelCreated}
+      />
+
+      {/* Channel Settings Panel */}
+      <ChannelSettingsPanel
+        open={settingsOpen}
+        onClose={() => {
+          setSettingsOpen(false);
+          setSettingsChannel(null);
+        }}
+        channel={settingsChannel}
+        workspace={workspace}
+        currentUserId={currentUserId}
+        currentUserRole={currentUserRole}
+        onChannelUpdated={handleChannelCreated}
       />
     </div>
   );

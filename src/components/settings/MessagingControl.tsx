@@ -16,7 +16,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { messagingRules as mockMessagingRules } from './mock-data';
+import { messagingRules as mockMessagingRules } from './defaults';
 import { ToggleSetting } from './UsersRolesControl';
 import { useSettings } from '@/hooks/useSettings';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';

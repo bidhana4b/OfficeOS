@@ -1,13 +1,18 @@
 import { motion } from 'framer-motion';
 import { Gauge, Clock, Users, Zap, TrendingUp, AlertTriangle } from 'lucide-react';
-import { packageAssignments, calculateWorkload } from './mock-data';
-import type { PackageWorkload } from './types';
+import { calculateWorkload } from './utils';
+import type { PackageAssignment, PackageWorkload } from './types';
 
-export function WorkloadEngine() {
-  const workloads: PackageWorkload[] = packageAssignments.map(calculateWorkload);
+interface WorkloadEngineProps {
+  assignments?: PackageAssignment[];
+}
+
+export function WorkloadEngine({ assignments }: WorkloadEngineProps) {
+  const activeAssignments = assignments && assignments.length > 0 ? assignments : [];
+  const workloads: PackageWorkload[] = activeAssignments.map(calculateWorkload);
   const totalHours = workloads.reduce((s, w) => s + w.totalHoursRequired, 0);
   const totalUnits = workloads.reduce((s, w) => s + w.totalCreativeUnits, 0);
-  const avgUtilization = Math.round(workloads.reduce((s, w) => s + w.teamUtilization, 0) / workloads.length);
+  const avgUtilization = workloads.length > 0 ? Math.round(workloads.reduce((s, w) => s + w.teamUtilization, 0) / workloads.length) : 0;
 
   return (
     <div className="space-y-6">
@@ -42,7 +47,7 @@ export function WorkloadEngine() {
           },
           {
             label: 'Active Packages',
-            value: packageAssignments.length,
+            value: activeAssignments.length,
             suffix: 'packages',
             icon: <TrendingUp className="w-5 h-5" />,
             color: '#39FF14',
@@ -81,7 +86,7 @@ export function WorkloadEngine() {
         <h4 className="font-display font-bold text-white text-sm">Per-Package Breakdown</h4>
         {workloads.map((wl, idx) => {
           const utilColor = wl.teamUtilization > 80 ? '#FF006E' : wl.teamUtilization > 60 ? '#FFB800' : '#39FF14';
-          const assignment = packageAssignments[idx];
+          const assignment = activeAssignments[idx];
 
           return (
             <motion.div
@@ -182,7 +187,7 @@ export function WorkloadEngine() {
           <div className="text-center">
             <p className="font-mono text-[10px] text-white/30">Available Capacity</p>
             <p className="font-display font-extrabold text-2xl text-[#39FF14]">
-              {(packageAssignments.reduce((s, a) => s + a.assignedTeamMembers.length, 0) * 160).toFixed(0)}h
+              {(activeAssignments.reduce((s, a) => s + a.assignedTeamMembers.length, 0) * 160).toFixed(0)}h
             </p>
           </div>
           <div className="text-center">

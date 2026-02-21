@@ -1,10 +1,10 @@
 import { motion } from 'framer-motion';
 import { Users, Brain, UserCheck, AlertCircle, ChevronRight } from 'lucide-react';
 import type { PackageAssignment } from './types';
-import { packageAssignments } from './mock-data';
 
 interface TeamAssignmentProps {
   assignment?: PackageAssignment;
+  assignments?: PackageAssignment[];
 }
 
 function LoadBar({ load }: { load: number }) {
@@ -29,9 +29,21 @@ function LoadBar({ load }: { load: number }) {
   );
 }
 
-export function TeamAssignment({ assignment }: TeamAssignmentProps) {
-  // Use first assignment by default for demo
-  const activeAssignment = assignment || packageAssignments[0];
+export function TeamAssignment({ assignment, assignments }: TeamAssignmentProps) {
+  // Use provided assignment, or first from list
+  const allAssignments = assignments && assignments.length > 0 ? assignments : [];
+  const activeAssignment = assignment || allAssignments[0];
+  
+  if (!activeAssignment) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <Users className="w-10 h-10 text-white/20 mb-3" />
+        <p className="text-white/40 text-sm font-medium">No team assignments</p>
+        <p className="text-white/20 text-xs mt-1">Assign team members to this package to get started</p>
+      </div>
+    );
+  }
+  
   const suggestedTeam = activeAssignment.assignedTeamMembers;
 
   return (

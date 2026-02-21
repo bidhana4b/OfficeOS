@@ -3,7 +3,6 @@ import { ClientList } from './ClientList';
 import { ClientProfile } from './ClientProfile';
 import { ActivityTimeline } from './ActivityTimeline';
 import { ClientPerformancePanel } from './ClientPerformancePanel';
-import { mockClients, mockActivities, mockPerformance } from './mock-data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -96,12 +95,12 @@ export function ClientHub() {
   const activitiesQuery = useClientActivities(selectedClientId || undefined);
   const performanceQuery = useClientPerformance(selectedClientId || '');
 
-  const clients = clientsQuery.data.length > 0 ? clientsQuery.data : mockClients;
+  const clients = clientsQuery.data.length > 0 ? clientsQuery.data : [];
   const selectedClient = clients.find((c) => c.id === selectedClientId);
   const clientActivities = activitiesQuery.data.length > 0
     ? activitiesQuery.data
-    : mockActivities.filter((a) => a.clientId === selectedClientId);
-  const clientPerformance = performanceQuery.data || (selectedClientId ? mockPerformance[selectedClientId] : null);
+    : [];
+  const clientPerformance = performanceQuery.data || null;
 
   // Real-time subscription for clients
   useEffect(() => {

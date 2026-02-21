@@ -17,14 +17,23 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { companyProfile as mockCompanyProfile, branches as mockBranches } from './mock-data';
+import { companyProfile as mockCompanyProfile, branches as mockBranches } from './defaults';
 import { useBranches, useSettings } from '@/hooks/useSettings';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 
 export default function OrganizationControl() {
   const branchesQuery = useBranches();
   const settingsQuery = useSettings('organization');
-  const [profile, setProfile] = useState(mockCompanyProfile);
+  const [profile, setProfile] = useState({
+    name: '',
+    logo: '',
+    brandColor: '#00D9FF',
+    address: '',
+    taxInfo: '',
+    invoiceFooter: '',
+    legalInfo: '',
+    paymentMethods: [] as string[],
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -32,14 +41,14 @@ export default function OrganizationControl() {
     if (settingsQuery.data) {
       const d = settingsQuery.data as Record<string, unknown>;
       setProfile({
-        name: (d.name as string) || mockCompanyProfile.name,
-        logo: (d.logo as string) || mockCompanyProfile.logo,
-        brandColor: (d.brandColor as string) || mockCompanyProfile.brandColor,
-        address: (d.address as string) || mockCompanyProfile.address,
-        taxInfo: (d.taxInfo as string) || mockCompanyProfile.taxInfo,
-        invoiceFooter: (d.invoiceFooter as string) || mockCompanyProfile.invoiceFooter,
-        legalInfo: (d.legalInfo as string) || mockCompanyProfile.legalInfo,
-        paymentMethods: (d.paymentMethods as string[]) || mockCompanyProfile.paymentMethods,
+        name: (d.name as string) || '',
+        logo: (d.logo as string) || '',
+        brandColor: (d.brandColor as string) || '#00D9FF',
+        address: (d.address as string) || '',
+        taxInfo: (d.taxInfo as string) || '',
+        invoiceFooter: (d.invoiceFooter as string) || '',
+        legalInfo: (d.legalInfo as string) || '',
+        paymentMethods: (d.paymentMethods as string[]) || [],
       });
     }
   }, [settingsQuery.data]);
@@ -53,7 +62,7 @@ export default function OrganizationControl() {
         status: (b.status as string) || 'active',
         location: (b.location as string) || '',
       }))
-    : mockBranches;
+    : [];
 
   const handleSaveProfile = async () => {
     setIsSaving(true);

@@ -7,7 +7,6 @@ import {
   Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { activityData as mockActivityData } from './mock-data';
 import type { ActivityItem } from './types';
 
 interface ActivityFeedProps {
@@ -49,7 +48,7 @@ const typeConfig = {
 };
 
 export default function ActivityFeed({ data, loading }: ActivityFeedProps) {
-  const activityData = data && data.length > 0 ? data : mockActivityData;
+  const activityData = data && data.length > 0 ? data : [];
 
   return (
     <div className="glass-card border border-white/[0.06] rounded-xl overflow-hidden h-full flex flex-col">
@@ -65,7 +64,14 @@ export default function ActivityFeed({ data, loading }: ActivityFeedProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-hide">
-        {activityData.map((item, index) => {
+        {activityData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full py-8 px-4">
+            <Clock className="w-8 h-8 text-white/10 mb-3" />
+            <p className="font-mono-data text-[11px] text-white/30 text-center">No activity yet</p>
+            <p className="font-mono-data text-[10px] text-white/15 text-center mt-1">Actions will appear here in real-time</p>
+          </div>
+        ) : (
+        activityData.map((item, index) => {
           const config = typeConfig[item.type];
           const Icon = config.icon;
           
@@ -98,7 +104,8 @@ export default function ActivityFeed({ data, loading }: ActivityFeedProps) {
               </div>
             </div>
           );
-        })}
+        })
+        )}
       </div>
     </div>
   );

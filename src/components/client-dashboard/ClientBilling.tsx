@@ -32,50 +32,7 @@ interface Invoice {
   description: string;
 }
 
-const fallbackInvoices: Invoice[] = [
-  {
-    id: '1',
-    number: 'INV-2024-001',
-    amount: 85000,
-    status: 'paid',
-    dueDate: '2024-01-15',
-    paidAt: '2024-01-12',
-    description: 'Royal Dominance Package — January 2024',
-  },
-  {
-    id: '2',
-    number: 'INV-2024-002',
-    amount: 85000,
-    status: 'sent',
-    dueDate: '2024-02-15',
-    description: 'Royal Dominance Package — February 2024',
-  },
-  {
-    id: '3',
-    number: 'INV-2024-B01',
-    amount: 15000,
-    status: 'paid',
-    dueDate: '2024-01-10',
-    paidAt: '2024-01-10',
-    description: 'Boost Campaign — New Year Sale (Meta Ads)',
-  },
-  {
-    id: '4',
-    number: 'INV-2024-B02',
-    amount: 20000,
-    status: 'overdue',
-    dueDate: '2024-01-20',
-    description: 'Boost Campaign — Showroom Visit (Google Ads)',
-  },
-  {
-    id: '5',
-    number: 'INV-2024-003',
-    amount: 85000,
-    status: 'draft',
-    dueDate: '2024-03-15',
-    description: 'Royal Dominance Package — March 2024',
-  },
-];
+// No more fallback mock data — real DB data only
 
 const statusConfig: Record<InvoiceStatus, { label: string; color: string; icon: typeof CheckCircle2; bg: string }> = {
   paid: { label: 'Paid', color: '#39FF14', icon: CheckCircle2, bg: 'rgba(57,255,20,0.1)' },
@@ -86,8 +43,8 @@ const statusConfig: Record<InvoiceStatus, { label: string; color: string; icon: 
 
 export default function ClientBilling() {
   const { user } = useAuth();
-  const [invoices, setInvoices] = useState<Invoice[]>(fallbackInvoices);
-  const [walletBalance, setWalletBalance] = useState(125000);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [walletBalance, setWalletBalance] = useState(0);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showAddFund, setShowAddFund] = useState(false);
   const [fundAmount, setFundAmount] = useState('');
@@ -263,6 +220,13 @@ export default function ClientBilling() {
           </div>
 
           <div className="space-y-2">
+            {invoices.length === 0 && !loading && (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Receipt className="w-10 h-10 text-white/20 mb-3" />
+                <p className="text-white/40 text-sm font-medium">No invoices yet</p>
+                <p className="text-white/20 text-xs mt-1">Your invoices will appear here</p>
+              </div>
+            )}
             {invoices.map((invoice, i) => {
               const status = statusConfig[invoice.status];
               const StatusIcon = status.icon;

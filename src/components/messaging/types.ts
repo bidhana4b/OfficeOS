@@ -18,6 +18,7 @@ export interface Workspace {
   clientLogo?: string;
   lastMessage: string;
   lastMessageTime: string;
+  lastMessageTimestamp?: string; // ISO timestamp for accurate sorting
   unreadCount: number;
   pinned: boolean;
   status: 'active' | 'paused' | 'at-risk' | 'churning';
@@ -37,6 +38,7 @@ export interface Channel {
   isHidden?: boolean; // internal channels hidden from clients
   lastMessage?: string;
   lastMessageTime?: string;
+  lastMessageTimestamp?: string; // ISO timestamp for accurate sorting
   description?: string;
   isPrivate?: boolean;
   isArchived?: boolean;

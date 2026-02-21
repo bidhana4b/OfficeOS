@@ -1,6 +1,5 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp } from 'lucide-react';
-import { revenueChartData as mockRevenueChartData } from './mock-data';
 
 interface FinancialPulseChartProps {
   data?: { day: string; revenue: number; expenses: number }[];
@@ -33,7 +32,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function FinancialPulseChart({ data, loading }: FinancialPulseChartProps) {
-  const revenueChartData = data && data.length > 0 ? data : mockRevenueChartData;
+  const revenueChartData = data && data.length > 0 ? data : [];
   const totalRevenue = revenueChartData.reduce((sum, d) => sum + d.revenue, 0);
   const totalExpenses = revenueChartData.reduce((sum, d) => sum + d.expenses, 0);
   const profit = totalRevenue - totalExpenses;

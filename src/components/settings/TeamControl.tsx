@@ -12,7 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { teamConfigs } from './mock-data';
+import { teamConfigs } from './defaults';
 import { ToggleSetting } from './UsersRolesControl';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 

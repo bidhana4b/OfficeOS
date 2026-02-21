@@ -18,7 +18,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { backupConfig, emergencyControls } from './mock-data';
+import { backupConfig, emergencyControls } from './defaults';
 import { ToggleSetting } from './UsersRolesControl';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 

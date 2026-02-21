@@ -10,7 +10,6 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { dashboardSummary as mockDashboardSummary } from './mock-data';
 import type { TeamDashboardSummary } from './types';
 
 interface TeamDashboardCardsProps {
@@ -99,7 +98,7 @@ const colorConfig = {
 };
 
 export default function TeamDashboardCards({ summary, loading }: TeamDashboardCardsProps) {
-  const data = summary || mockDashboardSummary;
+  const data = summary || { totalMembers: 0, activeProjects: 0, avgLoad: 0, departments: 0, pendingTasks: 0, completionRate: 0 };
   const summaryCards = buildSummaryCards(data);
 
   return (

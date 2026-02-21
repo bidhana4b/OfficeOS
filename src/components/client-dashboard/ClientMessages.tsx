@@ -41,109 +41,7 @@ interface ChatChannel {
   isTyping: boolean;
 }
 
-const fallbackChannels: ChatChannel[] = [
-  {
-    id: '1',
-    name: 'Creative Team',
-    avatar: '🎨',
-    lastMessage: 'Customer frame design is ready for review!',
-    timestamp: '2m ago',
-    unread: 2,
-    isTyping: false,
-  },
-  {
-    id: '2',
-    name: 'Rafiq Ahmed (AM)',
-    avatar: '👤',
-    lastMessage: 'I\'ll send the monthly report by EOD',
-    timestamp: '15m ago',
-    unread: 0,
-    isTyping: true,
-  },
-  {
-    id: '3',
-    name: 'Video Production',
-    avatar: '🎬',
-    lastMessage: 'Review video uploaded — check & approve',
-    timestamp: '1h ago',
-    unread: 1,
-    isTyping: false,
-  },
-  {
-    id: '4',
-    name: 'Media Buying',
-    avatar: '📢',
-    lastMessage: 'Campaign performance report attached',
-    timestamp: '3h ago',
-    unread: 0,
-    isTyping: false,
-  },
-];
-
-const fallbackMessages: Message[] = [
-  {
-    id: '1',
-    text: 'Hi! The New Year sale banner design is complete.',
-    sender: 'agency',
-    senderName: 'Arif Hassan',
-    senderAvatar: 'AH',
-    timestamp: '10:30 AM',
-    status: 'read',
-    type: 'text',
-  },
-  {
-    id: '2',
-    text: '',
-    sender: 'agency',
-    senderName: 'Arif Hassan',
-    senderAvatar: 'AH',
-    timestamp: '10:31 AM',
-    status: 'read',
-    type: 'image',
-    imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=400&q=70',
-  },
-  {
-    id: '3',
-    text: 'Customer Frame Design ready for approval',
-    sender: 'agency',
-    senderName: 'Arif Hassan',
-    senderAvatar: 'AH',
-    timestamp: '10:32 AM',
-    status: 'read',
-    type: 'deliverable',
-    deliverableTag: 'Customer Frame · Design #45',
-  },
-  {
-    id: '4',
-    text: 'This looks amazing! 🔥 Love the color scheme.',
-    sender: 'client',
-    senderName: 'You',
-    senderAvatar: 'IM',
-    timestamp: '10:45 AM',
-    status: 'read',
-    type: 'text',
-  },
-  {
-    id: '5',
-    text: 'Can we add the new tagline at the bottom? "Ride the Legacy"',
-    sender: 'client',
-    senderName: 'You',
-    senderAvatar: 'IM',
-    timestamp: '10:46 AM',
-    status: 'delivered',
-    type: 'text',
-  },
-  {
-    id: '6',
-    text: 'Sure! I\'ll update it and send the revised version shortly. Should take about 30 mins.',
-    sender: 'agency',
-    senderName: 'Arif Hassan',
-    senderAvatar: 'AH',
-    timestamp: '10:50 AM',
-    status: 'read',
-    type: 'text',
-  },
-];
+// No more fallback mock data — real DB data only
 
 // Map channel type to emoji
 const channelEmoji: Record<string, string> = {
@@ -163,11 +61,11 @@ function StatusIcon({ status }: { status: string }) {
 
 export default function ClientMessages() {
   const { user } = useAuth();
-  const [channels, setChannels] = useState<ChatChannel[]>(fallbackChannels);
+  const [channels, setChannels] = useState<ChatChannel[]>([]);
   const [activeChannel, setActiveChannel] = useState<ChatChannel | null>(null);
   const [activeChannelDbId, setActiveChannelDbId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Message[]>(fallbackMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -356,6 +254,13 @@ export default function ClientMessages() {
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-4">
+          {channels.length === 0 && !loading && (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <MessageCircle className="w-10 h-10 text-white/20 mb-3" />
+              <p className="text-white/40 text-sm font-medium">No channels yet</p>
+              <p className="text-white/20 text-xs mt-1">Your messaging channels will appear here</p>
+            </div>
+          )}
           {channels.map((channel, i) => (
             <motion.button
               key={channel.id}
@@ -421,6 +326,12 @@ export default function ClientMessages() {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hide px-3 py-3 space-y-3">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <MessageCircle className="w-8 h-8 text-white/20 mb-2" />
+            <p className="text-white/30 text-xs">No messages yet — start the conversation!</p>
+          </div>
+        )}
         {messages.map((msg) => {
           const isClient = msg.sender === 'client';
           return (

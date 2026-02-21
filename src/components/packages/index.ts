@@ -7,3 +7,4 @@ export { TeamAssignment } from './TeamAssignment';
 export { WorkloadEngine } from './WorkloadEngine';
 export { CategoryManager } from './CategoryManager';
 export { DeliverableTypeManager } from './DeliverableTypeManager';
+export { calculateWorkload, hoursPerUnit } from './utils';

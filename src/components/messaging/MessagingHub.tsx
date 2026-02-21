@@ -1,19 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageSquare, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { MessageSquare, PanelRightOpen, PanelRightClose, ArrowLeft } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import WorkspaceList from './WorkspaceList';
 import ChannelList from './ChannelList';
 import MessageThread from './MessageThread';
 import WorkspaceInsightPanel from './WorkspaceInsightPanel';
 import BoostWizard from './BoostWizard';
-import {
-  workspacesData as mockWorkspacesData,
-  messagesData,
-  currentUser as mockCurrentUser,
-  workspaceInsightsData,
-  defaultInsights,
-} from './mock-data';
-import type { Workspace, Channel, Message, BoostWizardData } from './types';
+import type { Workspace, Channel, Message, BoostWizardData, WorkspaceInsights } from './types';
 import { useWorkspaces, useMessages } from '@/hooks/useMessaging';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -39,13 +33,14 @@ import {
 export default function MessagingHub() {
   const { user } = useAuth();
   const workspacesQuery = useWorkspaces();
-  const workspacesData = workspacesQuery.data.length > 0 ? workspacesQuery.data : mockWorkspacesData;
+  const workspacesData = workspacesQuery.data.length > 0 ? workspacesQuery.data : [];
 
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
-  const [messages, setMessages] = useState<Record<string, Message[]>>(messagesData);
+  const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [showInsights, setShowInsights] = useState(true);
   const [boostWizardOpen, setBoostWizardOpen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; fileName: string; percent: number } | null>(null);
 
   // Map auth roles to messaging roles
   const mapAuthRoleToMessagingRole = (authRole: string): 'admin' | 'manager' | 'designer' | 'media-buyer' | 'client' => {
@@ -60,7 +55,7 @@ export default function MessagingHub() {
     return roleMap[authRole] || 'admin';
   };
 
-  // Current user from auth or fallback to mock
+  // Current user from auth (fallback for storyboard demos only)
   const currentUser = user
     ? {
         id: user.id,
@@ -69,7 +64,7 @@ export default function MessagingHub() {
         role: mapAuthRoleToMessagingRole(user.role),
         status: 'online' as const,
       }
-    : mockCurrentUser;
+    : { id: 'anonymous', name: 'Guest', avatar: 'G', role: 'admin' as const, status: 'online' as const };
 
   // Fetch real messages when channel changes
   const messagesQuery = useMessages(activeChannel?.id);
@@ -174,21 +169,23 @@ export default function MessagingHub() {
               ...prev,
               [activeChannel.id]: channelMessages.map((msg) => {
                 if (msg.id === newFile.message_id) {
-                  const fileType = (newFile.file_type as string || '').startsWith('image/')
+                  // DB columns are 'name', 'type', 'url', 'size', 'thumbnail'
+                  const rawType = (newFile.type as string) || (newFile.file_type as string) || '';
+                  const fileType = rawType === 'image' || rawType.startsWith('image/')
                     ? 'image'
-                    : (newFile.file_type as string || '').startsWith('video/')
+                    : rawType === 'video' || rawType.startsWith('video/')
                     ? 'video'
-                    : (newFile.file_type as string || '').includes('audio')
+                    : rawType === 'voice' || rawType.includes('audio')
                     ? 'voice'
                     : 'document';
 
                   const newFileObj = {
                     id: newFile.id as string,
-                    name: newFile.file_name as string,
+                    name: (newFile.name as string) || (newFile.file_name as string) || 'file',
                     type: fileType,
-                    size: formatFileSize((newFile.file_size as number) || 0),
-                    url: newFile.file_url as string,
-                    thumbnail: newFile.thumbnail_url as string | undefined,
+                    size: (newFile.size as string) || formatFileSize((newFile.file_size as number) || 0),
+                    url: (newFile.url as string) || (newFile.file_url as string) || '',
+                    thumbnail: (newFile.thumbnail as string) || (newFile.thumbnail_url as string) || undefined,
                   };
 
                   // Check if file already exists
@@ -279,12 +276,15 @@ export default function MessagingHub() {
           reply_to_id: replyTo?.id,
           reply_to_sender: replyTo?.sender.name,
           reply_to_content: replyTo?.content,
+          message_type: voiceBlob ? 'voice' : 'text',
         });
 
         // Upload files if any
         if (files && files.length > 0) {
-          for (const file of files) {
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             try {
+              setUploadProgress({ current: i + 1, total: files.length, fileName: file.name, percent: Math.round(((i) / files.length) * 100) });
               const uploaded = await uploadMessageFile(file, activeChannel.id);
               await addMessageFile(result.id, {
                 name: uploaded.name,
@@ -292,10 +292,12 @@ export default function MessagingHub() {
                 url: uploaded.url,
                 size: uploaded.size,
               });
+              setUploadProgress({ current: i + 1, total: files.length, fileName: file.name, percent: Math.round(((i + 1) / files.length) * 100) });
             } catch (fileErr) {
               console.warn('File upload failed:', fileErr);
             }
           }
+          setUploadProgress(null);
         }
 
         // Upload voice if any
@@ -349,6 +351,7 @@ export default function MessagingHub() {
         }, 500);
       } catch (err) {
         console.error('Failed to send message:', err);
+        setUploadProgress(null);
         setMessages((prev) => ({
           ...prev,
           [activeChannel.id]: (prev[activeChannel.id] || []).map((m) =>
@@ -500,6 +503,7 @@ export default function MessagingHub() {
           sender_avatar: 'AI',
           sender_role: 'admin',
           content: systemMessage.content,
+          is_system_message: true,
         });
 
         console.log('✅ Boost campaign created in DB:', campaign.id);
@@ -574,6 +578,7 @@ export default function MessagingHub() {
           sender_avatar: 'AI',
           sender_role: 'admin',
           content: systemMessage.content,
+          is_system_message: true,
         });
 
         console.log('✅ Deliverable created in DB:', deliverable.id);
@@ -728,10 +733,19 @@ export default function MessagingHub() {
     [activeChannel, activeWorkspace, currentUser]
   );
 
+  // Default empty insights for workspaces
+  const emptyInsights: WorkspaceInsights = {
+    packageUsage: [],
+    boostSummary: { totalBudget: 0, spent: 0, activeCampaigns: 0, platforms: [] },
+    walletBalance: 0,
+    deliverables: { pending: 0, inProgress: 0, completed: 0 },
+    healthScore: 0,
+    responseTime: 'N/A',
+    satisfaction: 0,
+  };
+
   const currentMessages = activeChannel ? messages[activeChannel.id] || [] : [];
-  const currentInsights = activeWorkspace
-    ? workspaceInsightsData[activeWorkspace.id] || defaultInsights
-    : defaultInsights;
+  const currentInsights = emptyInsights;
 
   return (
     <div className="h-full flex overflow-hidden bg-titan-bg relative">
@@ -751,12 +765,16 @@ export default function MessagingHub() {
         <div className="absolute bottom-0 left-1/3 w-[300px] h-[300px] rounded-full bg-titan-cyan/[0.02] blur-[80px]" />
       </div>
 
-      {/* Workspace List (Left Panel) */}
+      {/* Workspace List (Left Panel) — hidden on mobile when a workspace + channel is selected */}
       <motion.div
         initial={{ x: -20, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="w-[300px] shrink-0 z-10 relative"
+        className={cn(
+          'w-full sm:w-[260px] lg:w-[300px] shrink-0 z-10 relative',
+          // On mobile: hide when workspace+channel is active
+          (activeWorkspace && activeChannel) && 'hidden sm:block'
+        )}
       >
         <WorkspaceList
           workspaces={workspacesData}
@@ -768,12 +786,12 @@ export default function MessagingHub() {
       {/* Main Content Area */}
       {activeWorkspace && activeChannel ? (
         <>
-          {/* Channel List */}
+          {/* Channel List — hidden on mobile when viewing messages */}
           <motion.div
             initial={{ x: -10, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ duration: 0.2, delay: 0.1 }}
-            className="shrink-0 z-10 relative"
+            className="hidden md:block shrink-0 z-10 relative"
           >
             <ChannelList
               workspace={activeWorkspace}
@@ -791,8 +809,22 @@ export default function MessagingHub() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2, delay: 0.15 }}
-            className="flex-1 z-10 relative min-w-0"
+            className="flex-1 z-10 relative min-w-0 flex flex-col"
           >
+            {/* Mobile back button */}
+            <div className="sm:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] bg-titan-bg/80 backdrop-blur-sm">
+              <button
+                onClick={handleBack}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.06] transition-all"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="font-mono text-xs">Back</span>
+              </button>
+              <span className="font-display font-bold text-sm text-white/70 truncate">
+                #{activeChannel.name}
+              </span>
+            </div>
+            <div className="flex-1 min-h-0">
             <MessageThread
               messages={currentMessages}
               channel={activeChannel}
@@ -809,13 +841,15 @@ export default function MessagingHub() {
               onForwardMessage={handleForwardMessage}
               onSaveMessage={handleSaveMessage}
               onUnsaveMessage={handleUnsaveMessage}
+              uploadProgress={uploadProgress}
             />
+            </div>
           </motion.div>
 
-          {/* Insights Toggle Button */}
+          {/* Insights Toggle Button — desktop only */}
           <button
             onClick={() => setShowInsights(!showInsights)}
-            className="absolute top-3 right-3 z-20 p-2 rounded-lg glass-card border border-white/[0.08] hover:border-titan-cyan/20 text-white/40 hover:text-titan-cyan transition-all"
+            className="hidden lg:block absolute top-3 right-3 z-20 p-2 rounded-lg glass-card border border-white/[0.08] hover:border-titan-cyan/20 text-white/40 hover:text-titan-cyan transition-all"
           >
             {showInsights ? (
               <PanelRightClose className="w-4 h-4" />
@@ -824,7 +858,7 @@ export default function MessagingHub() {
             )}
           </button>
 
-          {/* Insight Panel (Right) */}
+          {/* Insight Panel (Right) — desktop only */}
           <AnimatePresence>
             {showInsights && (
               <motion.div
@@ -832,7 +866,7 @@ export default function MessagingHub() {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: 20, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="shrink-0 z-10 relative"
+                className="hidden lg:block shrink-0 z-10 relative"
               >
                 <WorkspaceInsightPanel
                   workspace={activeWorkspace}

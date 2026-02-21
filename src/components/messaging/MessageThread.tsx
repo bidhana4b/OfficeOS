@@ -62,6 +62,7 @@ interface MessageThreadProps {
   onUnsaveMessage?: (messageId: string) => void;
   onRetrySendMessage?: (messageId: string) => void;
   lastReadMessageId?: string; // For unread divider
+  uploadProgress?: { current: number; total: number; fileName: string; percent: number } | null;
 }
 
 const statusIcons: Record<string, React.ElementType> = {
@@ -855,21 +856,31 @@ function MessageBubble({
           )}
 
           {/* Voice message */}
-          {message.messageType === 'voice' && message.voiceUrl ? (
-            <div className="flex items-center gap-2">
-              <button className="w-8 h-8 rounded-full bg-titan-cyan/20 flex items-center justify-center text-titan-cyan hover:bg-titan-cyan/30 transition-all">
-                <Mic className="w-3.5 h-3.5" />
-              </button>
-              <audio src={message.voiceUrl} controls className="h-8 flex-1" style={{ maxWidth: 200 }} />
-              {message.voiceDuration != null && (
-                <span className="font-mono-data text-[9px] text-white/30">
-                  {Math.floor(message.voiceDuration / 60)}:{(message.voiceDuration % 60).toString().padStart(2, '0')}
-                </span>
-              )}
-            </div>
-          ) : (
+          {message.messageType === 'voice' && (message.voiceUrl || message.files?.some(f => f.type === 'voice')) ? (() => {
+            const voiceFileUrl = message.voiceUrl || message.files?.find(f => f.type === 'voice')?.url;
+            return (
+              <div className="flex items-center gap-2 min-w-[200px]">
+                <div className="w-8 h-8 rounded-full bg-titan-cyan/20 flex items-center justify-center text-titan-cyan shrink-0">
+                  <Mic className="w-3.5 h-3.5" />
+                </div>
+                {voiceFileUrl ? (
+                  <audio src={voiceFileUrl} controls className="h-8 flex-1" style={{ maxWidth: 220 }} preload="metadata" />
+                ) : (
+                  <div className="flex items-center gap-1 flex-1">
+                    <Clock className="w-3 h-3 text-white/20 animate-spin" />
+                    <span className="font-mono-data text-[10px] text-white/30">Loading voice...</span>
+                  </div>
+                )}
+                {message.voiceDuration != null && message.voiceDuration > 0 && (
+                  <span className="font-mono-data text-[9px] text-white/30 shrink-0">
+                    {Math.floor(message.voiceDuration / 60)}:{(message.voiceDuration % 60).toString().padStart(2, '0')}
+                  </span>
+                )}
+              </div>
+            );
+          })() : (
             <p className="font-mono-data text-[12px] text-white/80 leading-relaxed whitespace-pre-wrap">
-              {message.content.split(/(@[\w\s]+?)(?=\s@|\s|$)/g).map((part, i) => {
+              {(message.content || '').split(/(@[\w\s]+?)(?=\s@|\s|$)/g).map((part, i) => {
                 if (part.startsWith('@')) {
                   return (
                     <span key={i} className="font-semibold text-titan-cyan bg-titan-cyan/10 rounded px-0.5">
@@ -882,10 +893,15 @@ function MessageBubble({
             </p>
           )}
 
-          {/* Files */}
-          {message.files && message.files.length > 0 && (
+          {/* Files - filter out voice files if already shown as voice message */}
+          {message.files && message.files.length > 0 && (() => {
+            const filesToShow = message.messageType === 'voice' 
+              ? message.files.filter(f => f.type !== 'voice')
+              : message.files;
+            if (filesToShow.length === 0) return null;
+            return (
             <div className="mt-2 space-y-1.5">
-              {message.files.map((file) => (
+              {filesToShow.map((file) => (
                 <div key={file.id}>
                   {file.type === 'image' ? (
                     <div className="rounded-lg overflow-hidden border border-white/[0.1] mt-1">
@@ -895,6 +911,7 @@ function MessageBubble({
                         className="w-full max-w-[280px] h-auto object-cover cursor-pointer hover:opacity-90 transition-opacity"
                         loading="lazy"
                         onClick={() => window.open(file.url, '_blank')}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       />
                       <div className="flex items-center justify-between px-2 py-1.5 bg-black/20">
                         <span className="font-mono-data text-[9px] text-white/40 truncate">{file.name}</span>
@@ -917,7 +934,7 @@ function MessageBubble({
                   ) : file.type === 'voice' ? (
                     <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08]">
                       <Mic className="w-4 h-4 text-titan-cyan" />
-                      <audio src={file.url} controls className="h-7 flex-1" />
+                      <audio src={file.url} controls className="h-7 flex-1" preload="metadata" />
                     </div>
                   ) : (
                     <a href={file.url} target="_blank" rel="noopener noreferrer"
@@ -932,7 +949,8 @@ function MessageBubble({
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
 
           {/* Deliverable Tag */}
           {message.deliverableTag && <DeliverableCard tag={message.deliverableTag} />}
@@ -1136,6 +1154,7 @@ export default function MessageThread({
   onUnsaveMessage,
   onRetrySendMessage,
   lastReadMessageId,
+  uploadProgress,
 }: MessageThreadProps) {
   const [inputValue, setInputValue] = useState('');
   const [showQuickActions, setShowQuickActions] = useState(false);
@@ -1237,7 +1256,12 @@ export default function MessageThread({
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    setPendingFiles(prev => [...prev, ...files]);
+    // Prevent duplicate file uploads by name+size check
+    setPendingFiles(prev => {
+      const existingKeys = new Set(prev.map(f => `${f.name}-${f.size}`));
+      const newFiles = files.filter(f => !existingKeys.has(`${f.name}-${f.size}`));
+      return [...prev, ...newFiles];
+    });
     e.target.value = '';
   };
 
@@ -1247,7 +1271,14 @@ export default function MessageThread({
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
-        if (file) setPendingFiles(prev => [...prev, file]);
+        if (file) {
+          setPendingFiles(prev => {
+            // Check for duplicate by name+size
+            const key = `${file.name}-${file.size}`;
+            if (prev.some(f => `${f.name}-${f.size}` === key)) return prev;
+            return [...prev, file];
+          });
+        }
       }
     }
   }, []);
@@ -1255,7 +1286,13 @@ export default function MessageThread({
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) setPendingFiles(prev => [...prev, ...files]);
+    if (files.length > 0) {
+      setPendingFiles(prev => {
+        const existingKeys = new Set(prev.map(f => `${f.name}-${f.size}`));
+        const newFiles = files.filter(f => !existingKeys.has(`${f.name}-${f.size}`));
+        return [...prev, ...newFiles];
+      });
+    }
   }, []);
 
   const handleContextMenuAction = (action: MessageAction) => {
@@ -1679,6 +1716,38 @@ export default function MessageThread({
         {pendingFiles.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} className="px-4 py-2 border-t border-white/[0.06]">
             <FilePreview files={pendingFiles} onRemove={(i) => setPendingFiles(prev => prev.filter((_, idx) => idx !== i))} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Upload Progress Indicator */}
+      <AnimatePresence>
+        {uploadProgress && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            className="px-4 py-2 border-t border-white/[0.06] bg-[#0D1029]/60"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 border-2 border-titan-cyan/40 border-t-titan-cyan rounded-full animate-spin" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono-data text-[10px] text-white/60 truncate">
+                    Uploading {uploadProgress.fileName} ({uploadProgress.current}/{uploadProgress.total})
+                  </span>
+                  <span className="font-mono-data text-[10px] text-titan-cyan">{uploadProgress.percent}%</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full bg-gradient-to-r from-titan-cyan/80 to-titan-cyan"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${uploadProgress.percent}%` }}
+                    transition={{ duration: 0.3 }}
+                  />
+                </div>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TeamMember } from './types';
-import { teamCategoryLabels } from './mock-data';
+import { teamCategoryLabels } from './types';
 
 interface TeamMemberProfileProps {
   member: TeamMember;

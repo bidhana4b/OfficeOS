@@ -54,11 +54,18 @@ export default function WorkspaceList({ workspaces, activeWorkspaceId, onSelect 
       list = list.filter((ws) => ws.status === filter);
     }
 
-    // Sort: pinned first, then by unread count, then by time
+    // Sort: pinned first, then by unread count, then by latest message time
     list.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       if (a.unreadCount !== b.unreadCount) return b.unreadCount - a.unreadCount;
-      return 0;
+      // Sort by actual timestamp (use lastMessageTimestamp for accuracy, fallback to lastMessageTime)
+      const rawA = (a as any).lastMessageTimestamp || a.lastMessageTime;
+      const rawB = (b as any).lastMessageTimestamp || b.lastMessageTime;
+      const timeA = rawA ? new Date(rawA).getTime() : 0;
+      const timeB = rawB ? new Date(rawB).getTime() : 0;
+      if (!isNaN(timeA) && !isNaN(timeB) && timeA !== timeB) return timeB - timeA;
+      // Fallback: alphabetical by client name
+      return a.clientName.localeCompare(b.clientName);
     });
 
     return list;

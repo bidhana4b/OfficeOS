@@ -22,9 +22,9 @@ import {
   Zap,
   UserPlus,
   Wallet,
+  Menu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { notificationsData as mockNotificationsData } from './mock-data';
 import type { NotificationItem } from './types';
 import { useAuth, getRoleLabel } from '@/lib/auth';
 import { useNavigate } from 'react-router-dom';
@@ -37,6 +37,7 @@ interface TopCommandBarProps {
   notificationsLoading?: boolean;
   onNotificationsRefresh?: () => void;
   onNavigate?: (section: string) => void;
+  onMobileMenuToggle?: () => void;
 }
 
 // Map action_type / category to a sidebar navigation section
@@ -115,6 +116,7 @@ export default function TopCommandBar({
   notificationsLoading,
   onNotificationsRefresh,
   onNavigate,
+  onMobileMenuToggle,
 }: TopCommandBarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -124,7 +126,7 @@ export default function TopCommandBar({
   const [filterTab, setFilterTab] = useState<'all' | 'unread'>('all');
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const notificationsData = notifications && notifications.length > 0 ? notifications : mockNotificationsData;
+  const notificationsData = notifications && notifications.length > 0 ? notifications : [];
   const unreadCount = notificationsData.filter(n => !n.read).length;
 
   const visibleNotifications = filterTab === 'unread'
@@ -220,18 +222,29 @@ export default function TopCommandBar({
   };
 
   return (
-    <header className="h-16 flex items-center justify-between px-6 border-b border-white/[0.06] bg-[#0D1029]/60 backdrop-blur-xl relative z-30">
-      {/* Left: Search */}
-      <button
-        onClick={onSearchOpen}
-        className="flex items-center gap-3 px-4 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-titan-cyan/30 hover:bg-white/[0.06] transition-all duration-200 group"
-      >
-        <Search className="w-4 h-4 text-white/30 group-hover:text-titan-cyan/60 transition-colors" />
-        <span className="font-mono-data text-xs text-white/30 hidden sm:inline">Search anything...</span>
-        <kbd className="hidden md:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-[10px] font-mono-data text-white/20">
-          <Command className="w-2.5 h-2.5" />K
-        </kbd>
-      </button>
+    <header className="h-14 lg:h-16 flex items-center justify-between px-3 sm:px-4 lg:px-6 border-b border-white/[0.06] bg-[#0D1029]/60 backdrop-blur-xl relative z-30 gap-2">
+      {/* Left: Mobile Menu + Search */}
+      <div className="flex items-center gap-2">
+        {/* Mobile hamburger */}
+        {onMobileMenuToggle && (
+          <button
+            onClick={onMobileMenuToggle}
+            className="lg:hidden flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-white/20 transition-all duration-200"
+          >
+            <Menu className="w-4.5 h-4.5 text-white/50" />
+          </button>
+        )}
+        <button
+          onClick={onSearchOpen}
+          className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:border-titan-cyan/30 hover:bg-white/[0.06] transition-all duration-200 group"
+        >
+          <Search className="w-4 h-4 text-white/30 group-hover:text-titan-cyan/60 transition-colors" />
+          <span className="font-mono-data text-xs text-white/30 hidden sm:inline">Search anything...</span>
+          <kbd className="hidden md:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-[10px] font-mono-data text-white/20">
+            <Command className="w-2.5 h-2.5" />K
+          </kbd>
+        </button>
+      </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-3">
@@ -262,7 +275,9 @@ export default function TopCommandBar({
           {notifOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
-              <div className="absolute right-0 top-12 w-[400px] z-50 glass-card border border-white/[0.08] shadow-2xl animate-fade-in-up overflow-hidden">
+              <div className="absolute right-0 sm:right-0 top-12 w-[calc(100vw-1.5rem)] sm:w-[400px] max-w-[400px] z-50 glass-card border border-white/[0.08] shadow-2xl animate-fade-in-up overflow-hidden"
+                style={{ right: 'min(0px, calc(-50vw + 200px + 50%))' }}
+              >
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
                   <div className="flex items-center gap-2">

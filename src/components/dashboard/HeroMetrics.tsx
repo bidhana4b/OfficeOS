@@ -11,7 +11,6 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { metricsData as mockMetricsData } from './mock-data';
 import type { MetricCard } from './types';
 
 interface HeroMetricsProps {
@@ -62,8 +61,7 @@ const colorConfig = {
 };
 
 export default function HeroMetrics({ data, loading }: HeroMetricsProps) {
-  const isRealData = data && data.length > 0;
-  const metricsData = isRealData ? data : mockMetricsData;
+  const metricsData = data && data.length > 0 ? data : [];
 
   if (loading) {
     return (
@@ -75,8 +73,27 @@ export default function HeroMetrics({ data, loading }: HeroMetricsProps) {
     );
   }
 
+  if (metricsData.length === 0) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
+        {[
+          { label: 'Revenue', color: 'cyan' },
+          { label: 'Active Clients', color: 'purple' },
+          { label: 'Deliverables', color: 'magenta' },
+          { label: 'Team Load', color: 'lime' },
+        ].map((item) => (
+          <div key={item.label} className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+            <span className="font-mono-data text-[10px] text-white/30 uppercase tracking-wider">{item.label}</span>
+            <p className="font-display font-bold text-2xl text-white/20 mt-2">—</p>
+            <span className="font-mono-data text-[10px] text-white/20">No data yet</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
       {metricsData.map((metric, index) => {
         const Icon = iconMap[metric.icon] || DollarSign;
         const colors = colorConfig[metric.color];
@@ -90,7 +107,7 @@ export default function HeroMetrics({ data, loading }: HeroMetricsProps) {
           >
             <button
               className={cn(
-                'w-full text-left p-5 rounded-xl border backdrop-blur-[24px] transition-all duration-300 group cursor-pointer',
+                'w-full text-left p-3 sm:p-4 lg:p-5 rounded-xl border backdrop-blur-[24px] transition-all duration-300 group cursor-pointer',
                 'bg-gradient-to-br',
                 colors.bg,
                 colors.border,
@@ -98,18 +115,18 @@ export default function HeroMetrics({ data, loading }: HeroMetricsProps) {
                 'active:scale-[0.98]'
               )}
             >
-              <div className="flex items-start justify-between mb-4">
-                <div className={cn('flex items-center justify-center w-10 h-10 rounded-lg', colors.iconBg)}>
-                  <Icon className={cn('w-5 h-5', colors.iconText)} />
+              <div className="flex items-start justify-between mb-2 sm:mb-4">
+                <div className={cn('flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg', colors.iconBg)}>
+                  <Icon className={cn('w-4 h-4 sm:w-5 sm:h-5', colors.iconText)} />
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-white/20 group-hover:text-white/40 transition-colors" />
+                <ArrowUpRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white/20 group-hover:text-white/40 transition-colors" />
               </div>
               
-              <p className="font-mono-data text-[11px] text-white/40 tracking-wide mb-1">{metric.title}</p>
-              <div className="flex items-end justify-between">
-                <h3 className="font-display font-extrabold text-2xl text-white">{metric.value}</h3>
+              <p className="font-mono-data text-[9px] sm:text-[11px] text-white/40 tracking-wide mb-0.5 sm:mb-1 truncate">{metric.title}</p>
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-1">
+                <h3 className="font-display font-extrabold text-lg sm:text-xl lg:text-2xl text-white">{metric.value}</h3>
                 <div className={cn(
-                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono-data',
+                  'flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-mono-data w-fit',
                   metric.changeType === 'positive' ? 'bg-titan-lime/10 text-titan-lime' :
                   metric.changeType === 'negative' ? 'bg-titan-magenta/10 text-titan-magenta' :
                   'bg-white/[0.06] text-white/40'

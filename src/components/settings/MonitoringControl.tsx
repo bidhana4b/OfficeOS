@@ -16,7 +16,7 @@ import {
   Server,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { systemHealth, errorLogs as mockErrorLogs } from './mock-data';
+import { systemHealth, errorLogs as mockErrorLogs } from './defaults';
 import { useErrorLogs } from '@/hooks/useSettings';
 
 export default function MonitoringControl() {
@@ -33,7 +33,7 @@ export default function MonitoringControl() {
         severity: (e.severity as 'critical' | 'warning' | 'info') || 'info',
         resolved: (e.resolved as boolean) || false,
       }))
-    : mockErrorLogs;
+    : [];
 
   const filteredLogs = filterType === 'all' ? logs : logs.filter((l) => l.type === filterType);
 

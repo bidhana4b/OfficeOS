@@ -98,9 +98,10 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
   async function fetchClientData() {
     setLoading(true);
     try {
-      const clientId = user?.client_id || '00000000-0000-0000-0000-0000000000c1';
+      const clientId = user?.client_id;
+      if (!clientId) { setLoading(false); return; }
 
-      const [clientRes, walletRes, pkgRes, perfRes] = await Promise.all([
+      const [clientRes, walletRes, pkgRes, perfRes, campaignCountRes] = await Promise.all([
         supabase.from('clients').select('*').eq('id', clientId).single(),
         supabase.from('client_wallets').select('*').eq('client_id', clientId).single(),
         supabase
@@ -110,6 +111,7 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
           .eq('status', 'active')
           .single(),
         supabase.from('client_performance').select('*').eq('client_id', clientId).limit(1).single(),
+        supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('client_id', clientId).in('status', ['active', 'live']),
       ]);
 
       let usage: PackageUsageItem[] = [];
@@ -142,7 +144,7 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
         usage,
         stats: {
           postsPublished: perfRes.data?.posts_published || 0,
-          activeCampaigns: 2,
+          activeCampaigns: campaignCountRes.count || 0,
           adSpend: perfRes.data?.ad_spend_this_month || 0,
           leadsGenerated: perfRes.data?.leads_generated || 0,
         },
@@ -172,7 +174,30 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
     );
   }
 
-  const data = clientData!;
+  if (!clientData) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center px-6">
+          <Package className="w-12 h-12 text-white/10" />
+          <div>
+            <h3 className="font-display font-bold text-white/60 text-lg">No Client Data</h3>
+            <p className="font-mono text-xs text-white/30 mt-1">
+              {user?.client_id ? 'Unable to load your data. Please try refreshing.' : 'No client account linked to this user.'}
+            </p>
+          </div>
+          <button
+            onClick={fetchClientData}
+            className="px-4 py-2 rounded-lg bg-titan-cyan/10 text-titan-cyan font-mono text-xs hover:bg-titan-cyan/20 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5 inline mr-1.5" />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const data = clientData;
   const overallUsage = data.usage.length > 0
     ? Math.round(data.usage.reduce((sum, u) => sum + (u.used / u.total) * 100, 0) / data.usage.length)
     : 0;

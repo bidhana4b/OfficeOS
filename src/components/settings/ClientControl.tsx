@@ -13,7 +13,7 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
-import { clientRules as mockClientRules } from './mock-data';
+import { clientRules as mockClientRules } from './defaults';
 import { ToggleSetting } from './UsersRolesControl';
 import { useSettings } from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';

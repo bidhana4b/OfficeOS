@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { createDemoSession, validateDemoSession, getDemoUserById } from '@/lib/data-service';
 
 export type UserRole = 'super_admin' | 'designer' | 'media_buyer' | 'account_manager' | 'finance' | 'client';
 
@@ -26,22 +27,61 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const STORAGE_KEY = 'titan_demo_user';
+const SESSION_TOKEN_KEY = 'titan_session_token';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<DemoUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Restore session on mount
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored));
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
+    const restoreSession = async () => {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const sessionToken = localStorage.getItem(SESSION_TOKEN_KEY);
+
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+
+          // Try to validate session with DB
+          if (sessionToken && parsed.id) {
+            const isValid = await validateDemoSession(parsed.id, sessionToken);
+            if (isValid) {
+              // Session valid, refresh user data from DB
+              const freshUser = await getDemoUserById(parsed.id);
+              if (freshUser) {
+                const demoUser: DemoUser = {
+                  id: freshUser.id,
+                  email: freshUser.email,
+                  display_name: freshUser.display_name,
+                  role: freshUser.role as UserRole,
+                  avatar: freshUser.avatar || '',
+                  client_id: freshUser.client_id,
+                  metadata: freshUser.metadata || {},
+                  tenant_id: freshUser.tenant_id,
+                };
+                setUser(demoUser);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(demoUser));
+                setLoading(false);
+                return;
+              }
+            }
+          }
+
+          // Fallback: use stored data if DB validation fails (allows offline access)
+          // This session will be re-validated on next successful DB connection
+          console.warn('[Auth] DB session validation unavailable — using cached session');
+          setUser(parsed);
+        } catch {
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(SESSION_TOKEN_KEY);
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    };
+
+    restoreSession();
   }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
@@ -84,7 +124,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(demoUser);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(demoUser));
 
-      // Track last login
+      // Create session token in DB
+      try {
+        const token = await createDemoSession(data.id);
+        if (token) {
+          localStorage.setItem(SESSION_TOKEN_KEY, token);
+        }
+      } catch {
+        // Session token creation failed, still allow login
+        console.warn('Session token creation failed, using local-only session');
+      }
+
+      // Track last login (fire and forget)
       supabase.from('demo_users').update({ last_login_at: new Date().toISOString() }).eq('id', data.id).then(() => {});
 
       setLoading(false);
@@ -99,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(SESSION_TOKEN_KEY);
   }, []);
 
   return (

@@ -15,7 +15,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { mediaBuyingRules as mockMediaBuyingRules } from './mock-data';
+import { mediaBuyingRules as mockMediaBuyingRules } from './defaults';
 import { ToggleSetting } from './UsersRolesControl';
 import { useSettings } from '@/hooks/useSettings';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';

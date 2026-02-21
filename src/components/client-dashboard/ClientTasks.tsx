@@ -33,66 +33,7 @@ interface Task {
   description: string;
 }
 
-const fallbackTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Customer Frame Design — Royal Enfield Classic',
-    type: 'photo_graphics',
-    status: 'waiting_approval',
-    dueDate: '2024-01-18',
-    assignedTeam: 'Creative Team',
-    preview: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=300&q=60',
-    description: 'Custom frame design featuring the Royal Enfield Classic 350 with brand overlay.',
-  },
-  {
-    id: '2',
-    title: 'Review Video — Yamaha MT-15 Showroom Tour',
-    type: 'video_edit',
-    status: 'in_progress',
-    dueDate: '2024-01-20',
-    assignedTeam: 'Video Production',
-    preview: 'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?w=300&q=60',
-    description: 'Cinematic showroom walkthrough video with narration and branding.',
-  },
-  {
-    id: '3',
-    title: 'Social Media Post — New Year Sale',
-    type: 'copywriting',
-    status: 'pending',
-    dueDate: '2024-01-22',
-    assignedTeam: 'Content & Copy',
-    description: 'Instagram & Facebook post copy for the New Year motorcycle sale event.',
-  },
-  {
-    id: '4',
-    title: 'Banner Design — Festive Collection',
-    type: 'photo_graphics',
-    status: 'completed',
-    dueDate: '2024-01-15',
-    assignedTeam: 'Creative Team',
-    preview: 'https://images.unsplash.com/photo-1449426468159-d96dbf08f19f?w=300&q=60',
-    description: 'Website hero banner and social media banner set for festive season.',
-  },
-  {
-    id: '5',
-    title: 'Ad Copywriting — Meta Campaign',
-    type: 'copywriting',
-    status: 'completed',
-    dueDate: '2024-01-14',
-    assignedTeam: 'Content & Copy',
-    description: 'Ad copy variations for Meta Ads campaign targeting test ride bookings.',
-  },
-  {
-    id: '6',
-    title: 'Product Photography Edit — Honda CB350',
-    type: 'photo_graphics',
-    status: 'pending',
-    dueDate: '2024-01-25',
-    assignedTeam: 'Creative Team',
-    preview: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=300&q=60',
-    description: 'Photo retouching and branding overlay for Honda CB350 product shots.',
-  },
-];
+// No more fallback mock data — real DB data only
 
 // Map DB status to UI status
 function mapDeliverableStatus(dbStatus: string): TaskStatus {
@@ -142,7 +83,7 @@ const statusOrder: TaskStatus[] = ['waiting_approval', 'pending', 'in_progress',
 
 export default function ClientTasks() {
   const { user } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>(fallbackTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<TaskStatus | 'all'>('all');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -278,6 +219,13 @@ export default function ClientTasks() {
 
       {/* Task List */}
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-4 space-y-4">
+        {filtered.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <ClipboardList className="w-10 h-10 text-white/20 mb-3" />
+            <p className="text-white/40 text-sm font-medium">No tasks found</p>
+            <p className="text-white/20 text-xs mt-1">Your deliverables will appear here when assigned</p>
+          </div>
+        )}
         {Object.entries(grouped).map(([status, tasks]) => {
           const config = statusConfig[status as TaskStatus];
           const StatusIcon = config.icon;

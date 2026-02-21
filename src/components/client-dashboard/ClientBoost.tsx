@@ -34,56 +34,7 @@ interface Campaign {
   startDate: string;
 }
 
-const fallbackCampaigns: Campaign[] = [
-  {
-    id: '1',
-    name: 'New Year Sale — Meta Ads',
-    platform: 'Meta',
-    budget: 15000,
-    spent: 8700,
-    status: 'live',
-    impressions: 45000,
-    clicks: 1200,
-    leads: 47,
-    startDate: '2024-01-10',
-  },
-  {
-    id: '2',
-    name: 'Showroom Visit — Google Ads',
-    platform: 'Google',
-    budget: 20000,
-    spent: 20000,
-    status: 'completed',
-    impressions: 68000,
-    clicks: 2100,
-    leads: 89,
-    startDate: '2024-01-01',
-  },
-  {
-    id: '3',
-    name: 'Test Ride Booking — TikTok',
-    platform: 'TikTok',
-    budget: 10000,
-    spent: 3200,
-    status: 'live',
-    impressions: 28000,
-    clicks: 850,
-    leads: 23,
-    startDate: '2024-01-15',
-  },
-  {
-    id: '4',
-    name: 'Brand Awareness — Instagram',
-    platform: 'Meta',
-    budget: 12000,
-    spent: 0,
-    status: 'draft',
-    impressions: 0,
-    clicks: 0,
-    leads: 0,
-    startDate: '',
-  },
-];
+// No more fallback mock data — real DB data only
 
 const statusStyles: Record<CampaignStatus, { color: string; label: string; bg: string }> = {
   live: { color: '#39FF14', label: '● Live', bg: 'rgba(57,255,20,0.1)' },
@@ -119,7 +70,7 @@ function MiniSparkline({ color }: { color: string }) {
 
 export default function ClientBoost() {
   const { user } = useAuth();
-  const [campaigns, setCampaigns] = useState<Campaign[]>(fallbackCampaigns);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -259,6 +210,13 @@ export default function ClientBoost() {
 
       {/* Campaign List */}
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 pb-4 space-y-3">
+        {campaigns.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Rocket className="w-10 h-10 text-white/20 mb-3" />
+            <p className="text-white/40 text-sm font-medium">No campaigns yet</p>
+            <p className="text-white/20 text-xs mt-1">Create your first boost campaign to get started</p>
+          </div>
+        )}
         {campaigns.map((campaign, i) => {
           const status = statusStyles[campaign.status];
           const spentPercent = campaign.budget > 0 ? Math.round((campaign.spent / campaign.budget) * 100) : 0;

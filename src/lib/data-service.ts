@@ -10,7 +10,7 @@ import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
  * In production, this should be false so errors are visible
  */
 export const DATA_SERVICE_CONFIG = {
-  enableMockFallback: true,
+  enableMockFallback: false,
   logErrors: true,
 };
 
@@ -253,6 +253,8 @@ export interface SendMessageInput {
   reply_to_id?: string;
   reply_to_sender?: string;
   reply_to_content?: string;
+  message_type?: string;
+  is_system_message?: boolean;
 }
 
 export async function sendMessage(input: SendMessageInput) {
@@ -261,7 +263,7 @@ export async function sendMessage(input: SendMessageInput) {
     .from('messages')
     .insert({
       channel_id: input.channel_id,
-      sender_id: input.sender_id,
+      sender_id: input.sender_id === 'system' ? null : input.sender_id,
       sender_name: input.sender_name,
       sender_avatar: input.sender_avatar || '',
       sender_role: input.sender_role || 'admin',
@@ -270,12 +272,13 @@ export async function sendMessage(input: SendMessageInput) {
       reply_to_id: input.reply_to_id || null,
       reply_to_sender: input.reply_to_sender || null,
       reply_to_content: input.reply_to_content || null,
+      message_type: input.message_type || 'text',
+      is_system_message: input.is_system_message || false,
     })
     .select()
     .single();
 
   if (error) throw error;
-  // trigger trg_update_msg_meta updates channel & workspace counters
   return data;
 }
 
@@ -513,7 +516,7 @@ export async function saveMessage(messageId: string, userId: string) {
   const sb = requireSupabaseClient();
   const { data, error } = await sb
     .from('saved_messages')
-    .insert({ message_id: messageId, user_id: userId })
+    .insert({ message_id: messageId, user_profile_id: userId })
     .select()
     .single();
   if (error && error.code !== '23505') throw error;
@@ -526,7 +529,7 @@ export async function unsaveMessage(messageId: string, userId: string) {
     .from('saved_messages')
     .delete()
     .eq('message_id', messageId)
-    .eq('user_id', userId);
+    .eq('user_profile_id', userId);
   if (error) throw error;
 }
 
@@ -535,7 +538,7 @@ export async function getSavedMessages(userId: string) {
   const { data, error } = await sb
     .from('saved_messages')
     .select('*, messages(*)')
-    .eq('user_id', userId)
+    .eq('user_profile_id', userId)
     .order('saved_at', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -551,7 +554,33 @@ export async function forwardMessage(
   originalChannelName: string
 ) {
   const sb = requireSupabaseClient();
-  // Get original message
+
+  // Try using the DB function that also copies attachments
+  try {
+    const { data: newMsgId, error: rpcError } = await sb.rpc('forward_message_with_attachments', {
+      p_original_message_id: originalMessageId,
+      p_target_channel_id: targetChannelId,
+      p_sender_id: senderId,
+      p_sender_name: senderName,
+      p_sender_avatar: senderAvatar,
+      p_sender_role: senderRole,
+      p_original_channel_name: originalChannelName,
+    });
+
+    if (!rpcError && newMsgId) {
+      // Fetch the full new message
+      const { data: newMsg } = await sb
+        .from('messages')
+        .select('*')
+        .eq('id', newMsgId)
+        .single();
+      return newMsg;
+    }
+  } catch {
+    // RPC not available, fallback to manual forward
+  }
+
+  // Fallback: manual forward without attachments
   const { data: original } = await sb
     .from('messages')
     .select('content')
@@ -577,28 +606,58 @@ export async function forwardMessage(
     .single();
 
   if (error) throw error;
+
+  // Manually copy attachments
+  try {
+    const { data: files } = await sb
+      .from('message_files')
+      .select('*')
+      .eq('message_id', originalMessageId);
+
+    if (files && files.length > 0) {
+      for (const file of files) {
+        await sb.from('message_files').insert({
+          message_id: data.id,
+          name: file.name,
+          type: file.type,
+          url: file.url,
+          size: file.size,
+          thumbnail: file.thumbnail,
+        });
+      }
+    }
+  } catch (fileErr) {
+    console.warn('Failed to copy attachments during forward:', fileErr);
+  }
+
   return data;
 }
 
-export async function markMessageAsRead(messageId: string, userId: string) {
-  const sb = requireSupabaseClient();
-  const { data, error } = await sb
-    .from('message_read_receipts')
-    .insert({ message_id: messageId, user_id: userId })
-    .select()
-    .single();
-  if (error && error.code !== '23505') throw error;
-  return data;
-}
+// Legacy markMessageAsRead removed — use `markMessageAsReadV2` from Phase 3 section.
 
 // ============================================
 // FILE UPLOAD (Supabase Storage)
 // ============================================
 
-export async function uploadMessageFile(file: File, channelId: string) {
+export type UploadProgressCallback = (progress: { loaded: number; total: number; percent: number }) => void;
+
+export async function uploadMessageFile(
+  file: File,
+  channelId: string,
+  onProgress?: UploadProgressCallback
+) {
   const sb = requireSupabaseClient();
   const fileExt = file.name.split('.').pop();
   const fileName = `${channelId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+  // Max file size: 50MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024;
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(`File too large (${formatFileSize(file.size)}). Maximum allowed: 50 MB`);
+  }
+
+  // Report initial progress
+  onProgress?.({ loaded: 0, total: file.size, percent: 0 });
 
   const { data, error } = await sb.storage
     .from('message-attachments')
@@ -607,7 +666,16 @@ export async function uploadMessageFile(file: File, channelId: string) {
       upsert: false,
     });
 
-  if (error) throw error;
+  if (error) {
+    // If bucket doesn't exist, give a better error message
+    if (error.message?.includes('Bucket not found') || error.message?.includes('bucket')) {
+      throw new Error('Storage bucket "message-attachments" not found. Please create it in Supabase Dashboard → Storage.');
+    }
+    throw error;
+  }
+
+  // Report completion
+  onProgress?.({ loaded: file.size, total: file.size, percent: 100 });
 
   const { data: publicUrl } = sb.storage
     .from('message-attachments')
@@ -620,6 +688,23 @@ export async function uploadMessageFile(file: File, channelId: string) {
     size: formatFileSize(file.size),
     mimeType: file.type,
   };
+}
+
+// Upload multiple files with aggregate progress
+export async function uploadMultipleFiles(
+  files: File[],
+  channelId: string,
+  onProgress?: (progress: { current: number; total: number; fileName: string; percent: number }) => void
+) {
+  const results = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    onProgress?.({ current: i + 1, total: files.length, fileName: file.name, percent: Math.round(((i) / files.length) * 100) });
+    const result = await uploadMessageFile(file, channelId);
+    results.push(result);
+    onProgress?.({ current: i + 1, total: files.length, fileName: file.name, percent: Math.round(((i + 1) / files.length) * 100) });
+  }
+  return results;
 }
 
 export async function addMessageFile(
@@ -661,36 +746,10 @@ function formatFileSize(bytes: number): string {
 }
 
 // ============================================
-// CANNED RESPONSES
+// CANNED RESPONSES (Legacy helpers removed)
 // ============================================
-
-export async function getCannedResponses() {
-  const sb = requireSupabaseClient();
-  const { data, error } = await sb
-    .from('canned_responses')
-    .select('*')
-    .eq('tenant_id', DEMO_TENANT_ID)
-    .order('usage_count', { ascending: false });
-  if (error) throw error;
-  return data || [];
-}
-
-export async function createCannedResponse(title: string, content: string, shortcut?: string, category?: string) {
-  const sb = requireSupabaseClient();
-  const { data, error } = await sb
-    .from('canned_responses')
-    .insert({
-      tenant_id: DEMO_TENANT_ID,
-      title,
-      content,
-      shortcut,
-      category: category || 'general',
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
+// The primary getCannedResponses(workspaceId) and createCannedResponse(...)
+// are defined in the "PHASE 3: MESSAGING ENHANCEMENTS" section below.
 
 // ============================================
 // CAMPAIGNS / BOOST
@@ -1560,6 +1619,16 @@ export async function assignTeamMemberToDeliverable(deliverableId: string, teamM
 }
 
 // ============================================
+// READ RECEIPTS & CANNED RESPONSES (Messaging Phase 3)
+// ============================================
+
+// NOTE: These helpers already exist elsewhere in this file.
+// They were temporarily duplicated here and caused runtime errors like:
+// "Identifier 'markMessageAsRead' has already been declared".
+//
+// Keeping this section as a pointer for future maintainers.
+
+// ============================================
 // REAL-TIME SUBSCRIPTIONS (Generic)
 // ============================================
 
@@ -2380,6 +2449,139 @@ export async function clearAllNotifications() {
 }
 
 // ============================================
+// DASHBOARD CUSTOMIZATION
+// ============================================
+
+export interface DashboardWidget {
+  id: string;
+  visible: boolean;
+  order: number;
+  size?: 'small' | 'medium' | 'large';
+  gridArea?: string;
+}
+
+export interface DashboardLayout {
+  id: string;
+  user_profile_id: string;
+  tenant_id: string;
+  widgets: DashboardWidget[];
+  layout_type: 'grid' | 'list' | 'custom';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationPreferences {
+  id: string;
+  user_profile_id: string;
+  tenant_id: string;
+  email_enabled: boolean;
+  email_frequency: 'instant' | 'hourly' | 'daily' | 'weekly';
+  push_enabled: boolean;
+  categories: {
+    client: boolean;
+    team: boolean;
+    financial: boolean;
+    deliverable: boolean;
+    system: boolean;
+    assignment: boolean;
+    message: boolean;
+  };
+  dnd_enabled: boolean;
+  dnd_start_time?: string;
+  dnd_end_time?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getDashboardLayout(userProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('dashboard_layouts')
+    .select('*')
+    .eq('user_profile_id', userProfileId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error; // PGRST116 = not found
+  return data as DashboardLayout | null;
+}
+
+export async function saveDashboardLayout(
+  userProfileId: string,
+  tenantId: string,
+  widgets: DashboardWidget[],
+  layoutType: 'grid' | 'list' | 'custom' = 'grid'
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('dashboard_layouts')
+    .upsert({
+      user_profile_id: userProfileId,
+      tenant_id: tenantId,
+      widgets,
+      layout_type: layoutType,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as DashboardLayout;
+}
+
+export async function resetDashboardLayout(userProfileId: string) {
+  const sb = requireSupabaseClient();
+  const defaultWidgets: DashboardWidget[] = [
+    { id: 'hero-metrics', visible: true, order: 0, size: 'large' },
+    { id: 'activity-feed', visible: true, order: 1, size: 'medium' },
+    { id: 'quick-actions', visible: true, order: 2, size: 'small' },
+    { id: 'ai-insights', visible: true, order: 3, size: 'medium' },
+    { id: 'projects-kanban', visible: true, order: 4, size: 'large' },
+    { id: 'financial-pulse', visible: true, order: 5, size: 'medium' },
+  ];
+
+  const { data, error } = await sb
+    .from('dashboard_layouts')
+    .update({ widgets: defaultWidgets, layout_type: 'grid' })
+    .eq('user_profile_id', userProfileId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as DashboardLayout;
+}
+
+export async function getNotificationPreferences(userProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('notification_preferences')
+    .select('*')
+    .eq('user_profile_id', userProfileId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return data as NotificationPreferences | null;
+}
+
+export async function saveNotificationPreferences(
+  userProfileId: string,
+  tenantId: string,
+  preferences: Partial<Omit<NotificationPreferences, 'id' | 'user_profile_id' | 'tenant_id' | 'created_at' | 'updated_at'>>
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('notification_preferences')
+    .upsert({
+      user_profile_id: userProfileId,
+      tenant_id: tenantId,
+      ...preferences,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as NotificationPreferences;
+}
+
+// ============================================
 // REFRESH DASHBOARD METRICS
 // ============================================
 
@@ -2392,4 +2594,326 @@ export async function refreshDashboardMetrics() {
   if (error) {
     console.warn('Could not refresh metrics via RPC:', error.message);
   }
+}
+
+// ============================================
+// PHASE 3: MESSAGING ENHANCEMENTS
+// ============================================
+
+// Typing Indicators
+export async function sendTypingIndicator(channelId: string, userId: string, workspaceId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.from('typing_indicators').upsert({
+    channel_id: channelId,
+    user_profile_id: userId,
+    workspace_id: workspaceId,
+    expires_at: new Date(Date.now() + 5000).toISOString(),
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function clearTypingIndicator(channelId: string, userId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('typing_indicators')
+    .delete()
+    .eq('channel_id', channelId)
+    .eq('user_profile_id', userId);
+
+  if (error) throw error;
+}
+
+export function subscribeToTypingIndicators(
+  channelId: string,
+  callback: (users: string[]) => void
+) {
+  const sb = requireSupabaseClient();
+  return sb
+    .channel(`typing:${channelId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'typing_indicators',
+        filter: `channel_id=eq.${channelId}`,
+      },
+      async () => {
+        const { data } = await sb
+          .from('typing_indicators')
+          .select('user_profile_id')
+          .eq('channel_id', channelId)
+          .gt('expires_at', new Date().toISOString());
+        
+        const userIds = data?.map(d => d.user_profile_id) || [];
+        callback(userIds);
+      }
+    )
+    .subscribe();
+}
+
+// Read Receipts (Phase 3 schema)
+export async function markMessageAsReadV2(
+  messageId: string,
+  readerProfileId: string,
+  channelId: string
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.from('message_read_receipts').upsert({
+    message_id: messageId,
+    reader_profile_id: readerProfileId,
+    channel_id: channelId,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getReadReceipts(messageId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('message_read_receipts')
+    .select('reader_profile_id, read_at')
+    .eq('message_id', messageId)
+    .order('read_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+// Message Search
+export async function searchMessages(channelId: string, query: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.rpc('search_messages', {
+    p_channel_id: channelId,
+    p_search_query: query,
+  });
+
+  if (error) throw error;
+  return data || [];
+}
+
+// Thread Messages
+export async function createThreadReply(
+  parentMessageId: string,
+  messageId: string,
+  channelId: string
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.from('thread_messages').insert({
+    thread_parent_id: parentMessageId,
+    message_id: messageId,
+    channel_id: channelId,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getThreadReplies(parentMessageId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('thread_messages')
+    .select('message_id')
+    .eq('thread_parent_id', parentMessageId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getThreadReplyCount(parentMessageId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.rpc('get_thread_reply_count', {
+    p_parent_message_id: parentMessageId,
+  });
+
+  if (error) throw error;
+  return data || 0;
+}
+
+// Draft Messages
+export async function saveDraftMessage(
+  channelId: string,
+  userProfileId: string,
+  content: string,
+  replyToId?: string
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.from('draft_messages').upsert({
+    channel_id: channelId,
+    user_profile_id: userProfileId,
+    content,
+    reply_to_id: replyToId,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getDraftMessage(channelId: string, userProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('draft_messages')
+    .select('*')
+    .eq('channel_id', channelId)
+    .eq('user_profile_id', userProfileId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+  return data;
+}
+
+export async function deleteDraftMessage(channelId: string, userProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('draft_messages')
+    .delete()
+    .eq('channel_id', channelId)
+    .eq('user_profile_id', userProfileId);
+
+  if (error) throw error;
+}
+
+// Canned Responses
+export async function createCannedResponse(
+  workspaceId: string,
+  creatorProfileId: string,
+  title: string,
+  content: string,
+  category?: string,
+  shortcut?: string
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.from('canned_responses').insert({
+    workspace_id: workspaceId,
+    creator_profile_id: creatorProfileId,
+    title,
+    content,
+    category,
+    shortcut,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getCannedResponses(workspaceId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('canned_responses')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('is_favorite', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateCannedResponse(
+  responseId: string,
+  updates: Partial<{ title: string; content: string; category: string; is_favorite: boolean }>
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('canned_responses')
+    .update(updates)
+    .eq('id', responseId);
+
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCannedResponse(responseId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb.from('canned_responses').delete().eq('id', responseId);
+
+  if (error) throw error;
+}
+
+// Message Collections (Bookmarks)
+export async function addMessageToCollection(
+  messageId: string,
+  collectorProfileId: string,
+  collectionName?: string
+) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb.from('message_collections').upsert({
+    message_id: messageId,
+    collector_profile_id: collectorProfileId,
+    collection_name: collectionName,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function removeMessageFromCollection(messageId: string, collectorProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { error } = await sb
+    .from('message_collections')
+    .delete()
+    .eq('message_id', messageId)
+    .eq('collector_profile_id', collectorProfileId);
+
+  if (error) throw error;
+}
+
+export async function getCollectedMessages(collectorProfileId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('message_collections')
+    .select('*')
+    .eq('collector_profile_id', collectorProfileId)
+    .order('collected_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+// ============================================
+// SESSION MANAGEMENT (Phase 5)
+// ============================================
+
+export async function createDemoSession(userId: string): Promise<string | null> {
+  const sb = requireSupabaseClient();
+  try {
+    const { data, error } = await sb.rpc('create_demo_session', { p_user_id: userId });
+    if (error) throw error;
+    return data;
+  } catch {
+    // Fallback: just update last_login_at
+    await sb.from('demo_users').update({ last_login_at: new Date().toISOString() }).eq('id', userId);
+    return null;
+  }
+}
+
+export async function validateDemoSession(userId: string, token: string): Promise<boolean> {
+  const sb = requireSupabaseClient();
+  try {
+    const { data, error } = await sb.rpc('validate_demo_session', {
+      p_user_id: userId,
+      p_token: token,
+    });
+    if (error) return false;
+    return !!data;
+  } catch {
+    return false;
+  }
+}
+
+export async function getDemoUserById(userId: string) {
+  const sb = requireSupabaseClient();
+  const { data, error } = await sb
+    .from('demo_users')
+    .select('*')
+    .eq('id', userId)
+    .eq('is_active', true)
+    .single();
+
+  if (error) return null;
+  return data;
 }

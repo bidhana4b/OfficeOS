@@ -22,7 +22,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { aiConfig as mockAiConfig } from './mock-data';
+import { aiConfig as mockAiConfig } from './defaults';
 import { ToggleSetting } from './UsersRolesControl';
 import { useSettings } from '@/hooks/useSettings';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
