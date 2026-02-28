@@ -61,11 +61,11 @@ export function useSidebarBadges() {
           .from('packages')
           .select('id', { count: 'exact', head: true })
           .eq('is_active', true),
-        // In-progress deliverables
+        // In-progress deliverables (new post system)
         supabase
-          .from('deliverables')
+          .from('deliverable_posts')
           .select('id', { count: 'exact', head: true })
-          .in('status', ['in_progress', 'pending', 'revision']),
+          .in('status', ['in_progress', 'draft', 'revision', 'client_review', 'internal_review']),
         // Active campaigns
         supabase
           .from('campaigns')
@@ -112,7 +112,7 @@ export function useSidebarBadges() {
     const unsubs = [
       subscribeToTable('messages', () => fetchBadges()),
       subscribeToTable('clients', () => fetchBadges()),
-      subscribeToTable('deliverables', () => fetchBadges()),
+      subscribeToTable('deliverable_posts', () => fetchBadges()),
       subscribeToTable('campaigns', () => fetchBadges()),
       subscribeToTable('invoices', () => fetchBadges()),
     ];

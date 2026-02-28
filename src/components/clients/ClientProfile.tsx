@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useAuth } from '@/lib/auth';
-import { updateClient } from '@/lib/data-service';
+import { updateClient, deleteClient } from '@/lib/data-service';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import { useClientAssignments } from '@/hooks/useAssignments';
 
@@ -41,11 +41,13 @@ import {
   ChevronUp,
   Loader2,
   Briefcase,
+  Trash2,
 } from 'lucide-react';
 
 interface ClientProfileProps {
   client: Client;
   onRefresh?: () => void;
+  onDelete?: () => void;
 }
 
 const roleLabelsMap: Record<string, string> = {
@@ -123,9 +125,14 @@ function TeamAssignmentsPanel({ clientId }: { clientId: string }) {
   );
 }
 
-export function ClientProfile({ client, onRefresh }: ClientProfileProps) {
+export function ClientProfile({ client, onRefresh, onDelete }: ClientProfileProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'super_admin' || user?.role === 'account_manager';
+  
+  // Delete state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
   // Edit state
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -346,6 +353,20 @@ export function ClientProfile({ client, onRefresh }: ClientProfileProps) {
       onRefresh?.();
     } catch (err) {
       console.error('Failed to update usage:', err);
+    }
+  };
+
+  const handleDeleteClient = async () => {
+    if (deleteConfirmText !== client.businessName) return;
+    setDeleting(true);
+    try {
+      await deleteClient(client.id);
+      setShowDeleteConfirm(false);
+      onDelete?.();
+    } catch (err) {
+      console.error('Failed to delete client:', err);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -948,6 +969,83 @@ export function ClientProfile({ client, onRefresh }: ClientProfileProps) {
               className="bg-[#00D9FF]/20 hover:bg-[#00D9FF]/30 text-[#00D9FF] border border-[#00D9FF]/30"
             >
               {saving ? 'Assigning...' : 'Assign Package'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Danger Zone - Delete Client */}
+      {isAdmin && (
+        <div className="bg-red-950/30 backdrop-blur-xl border border-red-500/20 rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-5 h-5 text-red-400" />
+            <h4 className="text-lg font-bold text-red-400">Danger Zone</h4>
+          </div>
+          <p className="text-sm text-white/60 mb-4">
+            Permanently delete this client and all associated data including packages, deliverables, invoices, wallet, workspace, and messages. This action cannot be undone.
+          </p>
+          <Button
+            onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); }}
+            className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Delete Client
+          </Button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="bg-[#1A1D2E] border-red-500/30 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-400 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Client Permanently
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-white/70">
+              This will permanently delete <strong className="text-red-400">{client.businessName}</strong> and all associated data:
+            </p>
+            <ul className="text-xs text-white/50 space-y-1 list-disc list-inside">
+              <li>All deliverables and usage records</li>
+              <li>All invoices and wallet transactions</li>
+              <li>All workspace, channels, and messages</li>
+              <li>Client login credentials</li>
+              <li>Package assignments</li>
+            </ul>
+            <div>
+              <Label className="text-white/60 text-xs mb-1 block">
+                Type <strong className="text-red-400">{client.businessName}</strong> to confirm
+              </Label>
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={client.businessName}
+                className="bg-white/5 border-red-500/30 text-white focus:border-red-500/50"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)} className="text-white/60">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteClient}
+              disabled={deleting || deleteConfirmText !== client.businessName}
+              className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 disabled:opacity-30"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Permanently Delete
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

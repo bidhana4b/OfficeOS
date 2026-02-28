@@ -17,9 +17,14 @@ import {
   Receipt,
   Menu,
   X,
+  LogOut,
+  Shield,
+  FileImage,
+  BarChart3,
+  Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuth, type UserRole } from '@/lib/auth';
+import { useAuth, getRoleLabel, type UserRole } from '@/lib/auth';
 import { useSidebarBadges, type SidebarBadges } from '@/hooks/useSidebarBadges';
 
 interface SidebarNavProps {
@@ -41,22 +46,26 @@ interface NavItem {
 
 const allNavItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'command-center', label: 'Command Center', icon: Shield, roles: ['super_admin'] },
   { id: 'messaging', label: 'Messaging', icon: MessageSquare, badgeKey: 'messaging' },
   { id: 'clients', label: 'Clients', icon: Users, badgeKey: 'clients', roles: ['super_admin', 'account_manager'] },
   { id: 'assignments', label: 'Assignments', icon: UserPlus, roles: ['super_admin', 'account_manager'] },
   { id: 'packages', label: 'Packages', icon: Package, badgeKey: 'packages', roles: ['super_admin', 'account_manager', 'finance'] },
   { id: 'projects', label: 'Projects', icon: FolderKanban, badgeKey: 'projects', roles: ['super_admin', 'designer', 'account_manager'] },
+  { id: 'deliverables-feed', label: 'Deliverables', icon: FileImage, roles: ['super_admin', 'designer', 'account_manager'] },
   { id: 'finance', label: 'Invoices', icon: Receipt, badgeKey: 'finance', roles: ['super_admin', 'finance', 'account_manager'] },
   { id: 'wallet', label: 'Wallet', icon: Wallet, roles: ['super_admin', 'finance'] },
   { id: 'media', label: 'Campaigns', icon: Megaphone, badgeKey: 'media', roles: ['super_admin', 'media_buyer'] },
   { id: 'team', label: 'Team', icon: UserCog, badgeKey: 'team', roles: ['super_admin', 'account_manager'] },
+  { id: 'team-workload', label: 'Workload', icon: BarChart3, roles: ['super_admin', 'account_manager'] },
+  { id: 'bulk-import', label: 'Import Data', icon: Upload, roles: ['super_admin'] },
   { id: 'ai-insights', label: 'AI Insights', icon: Brain, roles: ['super_admin'] },
   { id: 'settings', label: 'Settings', icon: Settings, roles: ['super_admin'] },
   { id: 'debug', label: 'Debug Panel', icon: Zap, roles: ['super_admin'] },
 ];
 
 export default function SidebarNav({ collapsed, onToggle, activeItem, onNavigate, mobileOpen, onMobileToggle }: SidebarNavProps) {
-  const { user } = useAuth();
+  const { user, logout, isDemoMode } = useAuth();
   const userRole = user?.role || 'super_admin';
   const { badges } = useSidebarBadges();
 
@@ -186,8 +195,73 @@ export default function SidebarNav({ collapsed, onToggle, activeItem, onNavigate
           })}
         </nav>
 
+        {/* User Profile Section */}
+        <div className={cn(
+          'px-2 py-3 border-t border-white/[0.06]',
+          collapsed && !mobileOpen ? 'flex flex-col items-center gap-2' : ''
+        )}>
+          {/* Demo Mode Indicator */}
+          {isDemoMode && (!collapsed || mobileOpen) && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 mb-2 rounded-md bg-amber-500/10 border border-amber-500/20">
+              <Shield className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="font-mono-data text-[10px] text-amber-400/90 tracking-wide">DEMO MODE</span>
+            </div>
+          )}
+          {isDemoMode && collapsed && !mobileOpen && (
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-1" title="Demo Mode">
+              <Shield className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+          )}
+
+          {/* User Info */}
+          {user && (
+            <div className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-lg',
+              collapsed && !mobileOpen ? 'justify-center px-0' : ''
+            )}>
+              <div className="relative shrink-0">
+                {user.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={user.display_name}
+                    className="w-8 h-8 rounded-full object-cover ring-2 ring-white/10"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-titan-cyan/30 to-titan-purple/30 flex items-center justify-center ring-2 ring-white/10">
+                    <span className="text-xs font-bold text-white/80">
+                      {user.display_name?.charAt(0)?.toUpperCase() || 'U'}
+                    </span>
+                  </div>
+                )}
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0D1029]" />
+              </div>
+              {(!collapsed || mobileOpen) && (
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono-data text-xs text-white/80 truncate">{user.display_name}</p>
+                  <p className="font-mono-data text-[10px] text-titan-cyan/60 truncate">{getRoleLabel(user.role)}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Logout Button */}
+          <button
+            onClick={() => logout()}
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-white/30 hover:text-red-400/80 hover:bg-red-500/[0.06] transition-all duration-200 group',
+              collapsed && !mobileOpen ? 'justify-center' : ''
+            )}
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4 shrink-0 group-hover:text-red-400/80 transition-colors" />
+            {(!collapsed || mobileOpen) && (
+              <span className="font-mono-data text-[10px] tracking-wide">Sign Out</span>
+            )}
+          </button>
+        </div>
+
         {/* Collapse Toggle — desktop only */}
-        <div className="hidden lg:block px-2 py-3 border-t border-white/[0.06]">
+        <div className="hidden lg:block px-2 py-2 border-t border-white/[0.06]">
           <button
             onClick={onToggle}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all duration-200"

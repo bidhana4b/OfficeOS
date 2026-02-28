@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import { updateDeliverableStatus } from '@/lib/data-service';
+import { createDeliverableRevision } from '@/lib/data-service';
+import DeliverableRating from './DeliverableRating';
 import {
   ClipboardList,
   Clock,
@@ -81,13 +83,14 @@ const typeIcons: Record<string, typeof Image> = {
 
 const statusOrder: TaskStatus[] = ['waiting_approval', 'pending', 'in_progress', 'completed'];
 
-export default function ClientTasks() {
+export default function ClientTasks({ onNewRequest }: { onNewRequest?: () => void }) {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<TaskStatus | 'all'>('all');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [revisionNotes, setRevisionNotes] = useState('');
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -163,14 +166,28 @@ export default function ClientTasks() {
     setActionLoading(true);
     try {
       await updateDeliverableStatus(task.id, 'in-progress');
+      // Save revision notes to both deliverables and revision history
+      if (revisionNotes.trim()) {
+        await supabase
+          .from('deliverables')
+          .update({ notes: `[REVISION] ${revisionNotes}` })
+          .eq('id', task.id);
+        // Also create a revision history entry
+        try {
+          await createDeliverableRevision(task.id, revisionNotes, user?.id);
+        } catch {
+          // Revision history table may not exist yet, non-blocking
+        }
+      }
       setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, status: 'in_progress' as TaskStatus } : t));
       setSelectedTask(null);
+      setRevisionNotes('');
     } catch (e) {
       console.error('Failed to request revision:', e);
     } finally {
       setActionLoading(false);
     }
-  }, []);
+  }, [revisionNotes]);
 
   const filtered = activeFilter === 'all' ? tasks : tasks.filter((t) => t.status === activeFilter);
 
@@ -183,15 +200,25 @@ export default function ClientTasks() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="px-4 pt-4 pb-3">
-        <h1 className="font-display font-extrabold text-lg text-white flex items-center gap-2">
-          <ClipboardList className="w-5 h-5 text-titan-cyan" />
-          Tasks
-          {loading && <Loader2 className="w-3.5 h-3.5 text-titan-cyan/40 animate-spin" />}
-        </h1>
-        <p className="font-mono text-[10px] text-white/30 mt-0.5">
-          {tasks.length} deliverables • {tasks.filter((t) => t.status !== 'completed').length} active
-        </p>
+      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+        <div>
+          <h1 className="font-display font-extrabold text-lg text-white flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-titan-cyan" />
+            Tasks
+            {loading && <Loader2 className="w-3.5 h-3.5 text-titan-cyan/40 animate-spin" />}
+          </h1>
+          <p className="font-mono text-[10px] text-white/30 mt-0.5">
+            {tasks.length} deliverables • {tasks.filter((t) => t.status !== 'completed').length} active
+          </p>
+        </div>
+        {onNewRequest && (
+          <button
+            onClick={onNewRequest}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-titan-cyan/10 border border-titan-cyan/25 active:scale-95 transition-transform"
+          >
+            <span className="font-mono text-[10px] text-titan-cyan font-semibold">+ New Request</span>
+          </button>
+        )}
       </div>
 
       {/* Filter Pills */}
@@ -352,21 +379,44 @@ export default function ClientTasks() {
                 </div>
 
                 {selectedTask.status === 'waiting_approval' && (
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleApprove(selectedTask)}
-                      disabled={actionLoading}
-                      className="flex-1 py-2.5 rounded-xl bg-titan-lime/15 border border-titan-lime/30 font-display font-bold text-xs text-titan-lime active:scale-[0.97] transition-transform disabled:opacity-50"
-                    >
-                      {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '✓ Approve'}
-                    </button>
-                    <button
-                      onClick={() => handleRequestRevision(selectedTask)}
-                      disabled={actionLoading}
-                      className="flex-1 py-2.5 rounded-xl bg-titan-magenta/15 border border-titan-magenta/30 font-display font-bold text-xs text-titan-magenta active:scale-[0.97] transition-transform disabled:opacity-50"
-                    >
-                      {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '✕ Request Revision'}
-                    </button>
+                  <div className="space-y-3">
+                    {/* Revision Notes */}
+                    <div>
+                      <label className="font-mono text-[10px] text-white/40 block mb-1.5">Feedback / Revision Notes</label>
+                      <textarea
+                        value={revisionNotes}
+                        onChange={(e) => setRevisionNotes(e.target.value)}
+                        placeholder="Add specific feedback or revision instructions..."
+                        rows={2}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs text-white placeholder:text-white/20 focus:border-titan-cyan/50 focus:outline-none resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleApprove(selectedTask)}
+                        disabled={actionLoading}
+                        className="flex-1 py-2.5 rounded-xl bg-titan-lime/15 border border-titan-lime/30 font-display font-bold text-xs text-titan-lime active:scale-[0.97] transition-transform disabled:opacity-50"
+                      >
+                        {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '✓ Approve'}
+                      </button>
+                      <button
+                        onClick={() => handleRequestRevision(selectedTask)}
+                        disabled={actionLoading}
+                        className="flex-1 py-2.5 rounded-xl bg-titan-magenta/15 border border-titan-magenta/30 font-display font-bold text-xs text-titan-magenta active:scale-[0.97] transition-transform disabled:opacity-50"
+                      >
+                        {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '✕ Request Revision'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Rating for approved/delivered tasks */}
+                {(selectedTask.status === 'approved' || selectedTask.status === 'delivered') && user?.client_id && (
+                  <div className="glass-card p-3 space-y-2">
+                    <DeliverableRating
+                      deliverableId={selectedTask.id}
+                      clientId={user.client_id}
+                    />
                   </div>
                 )}
               </div>

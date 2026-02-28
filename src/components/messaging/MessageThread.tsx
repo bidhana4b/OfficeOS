@@ -39,10 +39,16 @@ import {
   ArrowLeft,
   ChevronDown,
   AlertTriangle,
+  Settings,
+  Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import type { Message, Channel, Workspace, User, DeliverableTag, BoostTag, MessageAction } from './types';
+import DeliverableRequestModal from './DeliverableRequestModal';
+import ChannelManagementModal from './ChannelManagementModal';
+import AddMemberToChannelModal from './AddMemberToChannelModal';
+import VoiceRecorder from './VoiceRecorder';
 
 interface MessageThreadProps {
   messages: Message[];
@@ -63,6 +69,11 @@ interface MessageThreadProps {
   onRetrySendMessage?: (messageId: string) => void;
   lastReadMessageId?: string; // For unread divider
   uploadProgress?: { current: number; total: number; fileName: string; percent: number } | null;
+  typingUserNames?: string[];
+  onTypingStart?: () => void;
+  onTypingStop?: () => void;
+  readReceipts?: Map<string, Array<{ userId: string; readAt: string }>>;
+  onMessageViewed?: (messageId: string) => void;
 }
 
 const statusIcons: Record<string, React.ElementType> = {
@@ -224,76 +235,6 @@ function EmojiPicker({ onSelect, onClose }: { onSelect: (emoji: string) => void;
           ))}
         </div>
       </div>
-    </motion.div>
-  );
-}
-
-// ===== Voice Recorder =====
-function VoiceRecorder({ onRecorded, onCancel }: { onRecorded: (blob: Blob, duration: number) => void; onCancel: () => void }) {
-  const [duration, setDuration] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
-        const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        mediaRecorderRef.current = mr;
-        chunksRef.current = [];
-        mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-        mr.onstop = () => stream.getTracks().forEach(t => t.stop());
-        mr.start();
-        timerRef.current = setInterval(() => setDuration(p => p + 1), 1000);
-      } catch { onCancel(); }
-    })();
-    return () => { cancelled = true; if (timerRef.current) clearInterval(timerRef.current); };
-  }, []);
-
-  const stopAndSend = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    const mr = mediaRecorderRef.current;
-    if (mr && mr.state !== 'inactive') {
-      const d = duration;
-      mr.onstop = () => {
-        mr.stream.getTracks().forEach(t => t.stop());
-        onRecorded(new Blob(chunksRef.current, { type: 'audio/webm' }), d);
-      };
-      mr.stop();
-    }
-  };
-
-  const cancel = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    const mr = mediaRecorderRef.current;
-    if (mr && mr.state !== 'inactive') {
-      mr.onstop = () => mr.stream.getTracks().forEach(t => t.stop());
-      mr.stop();
-    }
-    onCancel();
-  };
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} className="flex items-center gap-3 flex-1">
-      <button onClick={cancel} className="p-2 rounded-lg hover:bg-red-500/10 text-red-400 transition-all"><Trash2 className="w-4 h-4" /></button>
-      <div className="flex items-center gap-2 flex-1">
-        <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1.5 }} className="w-3 h-3 rounded-full bg-red-500" />
-        <span className="font-mono-data text-sm text-white/70">{Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}</span>
-        <div className="flex items-center gap-0.5 flex-1">
-          {Array.from({ length: 30 }).map((_, i) => (
-            <motion.div key={i} animate={{ height: [4, Math.random() * 20 + 4, 4] }}
-              transition={{ repeat: Infinity, duration: 0.5 + Math.random() * 0.5, delay: i * 0.05 }}
-              className="w-1 rounded-full bg-titan-cyan/40" style={{ minHeight: 4 }} />
-          ))}
-        </div>
-      </div>
-      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={stopAndSend}
-        className="p-2.5 rounded-xl bg-gradient-to-br from-titan-cyan to-titan-cyan/80 text-titan-bg hover:shadow-lg hover:shadow-titan-cyan/20 transition-all">
-        <Send className="w-4 h-4" />
-      </motion.button>
     </motion.div>
   );
 }
@@ -1155,10 +1096,14 @@ export default function MessageThread({
   onRetrySendMessage,
   lastReadMessageId,
   uploadProgress,
+  typingUserNames = [],
+  onTypingStart,
+  onTypingStop,
+  readReceipts,
+  onMessageViewed,
 }: MessageThreadProps) {
   const [inputValue, setInputValue] = useState('');
   const [showQuickActions, setShowQuickActions] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showPinned, setShowPinned] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
@@ -1177,6 +1122,14 @@ export default function MessageThread({
   const [activeThread, setActiveThread] = useState<Message | null>(null);
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
+  
+  // Modal states
+  const [deliverableModalOpen, setDeliverableModalOpen] = useState(false);
+  const [deliverableType, setDeliverableType] = useState<'design' | 'video' | 'content' | 'approval' | null>(null);
+  const [channelModalOpen, setChannelModalOpen] = useState(false);
+  const [channelModalMode, setChannelModalMode] = useState<'create' | 'edit' | 'delete'>('create');
+  const [addMemberModalOpen, setAddMemberModalOpen] = useState(false);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1187,15 +1140,15 @@ export default function MessageThread({
     }
   }, [messages]);
 
+  // Mark messages as viewed when scrolling
   useEffect(() => {
-    if (messages.length > 0) {
-      const timeout = setTimeout(() => {
-        setIsTyping(true);
-        setTimeout(() => setIsTyping(false), 3000);
-      }, 5000);
-      return () => clearTimeout(timeout);
+    if (!onMessageViewed || messages.length === 0) return;
+    // Mark the last message as viewed when messages change
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.sender.id !== currentUser.id) {
+      onMessageViewed(lastMsg.id);
     }
-  }, [messages.length]);
+  }, [messages, currentUser.id, onMessageViewed]);
 
   useEffect(() => {
     setReplyingTo(null); setEditingMessage(null); setContextMenu(null);
@@ -1211,6 +1164,7 @@ export default function MessageThread({
     if (!inputValue.trim() && pendingFiles.length === 0) return;
     onSendMessage(inputValue.trim(), pendingFiles.length > 0 ? pendingFiles : undefined, replyingTo || undefined);
     setInputValue(''); setReplyingTo(null); setPendingFiles([]);
+    if (onTypingStop) onTypingStop();
     if (inputRef.current) inputRef.current.style.height = 'auto';
   };
 
@@ -1227,6 +1181,13 @@ export default function MessageThread({
     setInputValue(value);
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+
+    // Trigger typing indicator
+    if (value.trim() && onTypingStart) {
+      onTypingStart();
+    } else if (!value.trim() && onTypingStop) {
+      onTypingStop();
+    }
 
     // Detect @ mention
     const cursorPos = e.target.selectionStart;
@@ -1341,8 +1302,8 @@ export default function MessageThread({
   };
 
   const handleOpenAddMember = async () => {
-    setShowAddMemberDialog(true);
     setLoadingUsers(true);
+    setAddMemberModalOpen(true);
     try {
       const DEMO_TENANT_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
       const { data, error } = await supabase
@@ -1408,10 +1369,45 @@ export default function MessageThread({
   const unreadCount = unreadDividerIndex >= 0 ? messages.length - unreadDividerIndex : 0;
 
   const quickActions = [
-    { icon: Palette, label: 'Design', color: 'text-titan-cyan', action: () => onCreateDeliverable('design') },
-    { icon: Video, label: 'Video', color: 'text-titan-purple', action: () => onCreateDeliverable('video') },
-    { icon: Rocket, label: 'Boost', color: 'text-titan-magenta', action: () => onOpenBoostWizard() },
-    { icon: ShieldCheck, label: 'Approval', color: 'text-titan-lime', action: () => onCreateDeliverable('approval') },
+    { 
+      icon: Palette, 
+      label: 'Design', 
+      color: 'text-titan-cyan', 
+      action: () => { 
+        setDeliverableType('design'); 
+        setDeliverableModalOpen(true); 
+        setShowQuickActions(false);
+      } 
+    },
+    { 
+      icon: Video, 
+      label: 'Video', 
+      color: 'text-titan-purple', 
+      action: () => { 
+        setDeliverableType('video'); 
+        setDeliverableModalOpen(true);
+        setShowQuickActions(false); 
+      } 
+    },
+    { 
+      icon: Rocket, 
+      label: 'Boost', 
+      color: 'text-titan-magenta', 
+      action: () => { 
+        onOpenBoostWizard(); 
+        setShowQuickActions(false);
+      } 
+    },
+    { 
+      icon: ShieldCheck, 
+      label: 'Approval', 
+      color: 'text-titan-lime', 
+      action: () => { 
+        setDeliverableType('approval'); 
+        setDeliverableModalOpen(true);
+        setShowQuickActions(false); 
+      } 
+    },
   ];
 
   const visibleMessages = messages.filter(m => !m.isDeleted || m.deletedForEveryone);
@@ -1434,8 +1430,6 @@ export default function MessageThread({
           <span className="font-mono-data text-[10px] text-white/30">{workspace.members.length} members</span>
         </div>
         <div className="flex items-center gap-1">
-          <button className="p-2 rounded-lg hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all" title="Audio Call"><Phone className="w-4 h-4" /></button>
-          <button className="p-2 rounded-lg hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all" title="Video Call"><VideoIcon className="w-4 h-4" /></button>
           <button onClick={() => { setShowSearch(!showSearch); setShowPinned(false); }}
             className={cn('p-2 rounded-lg transition-all', showSearch ? 'bg-titan-cyan/10 text-titan-cyan' : 'hover:bg-white/[0.06] text-white/30 hover:text-white/60')} title="Search">
             <Search className="w-4 h-4" />
@@ -1451,6 +1445,16 @@ export default function MessageThread({
           <button onClick={() => setShowMembers(!showMembers)}
             className={cn('p-2 rounded-lg transition-all', showMembers ? 'bg-titan-cyan/10 text-titan-cyan' : 'hover:bg-white/[0.06] text-white/30 hover:text-white/60')} title="Members">
             <Users className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={() => {
+              setChannelModalMode('edit');
+              setChannelModalOpen(true);
+            }}
+            className="p-2 rounded-lg hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all" 
+            title="Channel Settings"
+          >
+            <Settings className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -1658,9 +1662,11 @@ export default function MessageThread({
 
         {/* Typing Indicator */}
         <AnimatePresence>
-          {isTyping && (
+          {typingUserNames.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} className="flex items-center gap-2 px-1">
-              <div className="w-6 h-6 rounded-lg bg-titan-purple/20 flex items-center justify-center text-[8px] font-bold text-titan-purple border border-titan-purple/20">JW</div>
+              <div className="w-6 h-6 rounded-lg bg-titan-purple/20 flex items-center justify-center text-[8px] font-bold text-titan-purple border border-titan-purple/20">
+                {typingUserNames[0]?.split(' ').map(n => n[0]).join('').slice(0, 2) || '?'}
+              </div>
               <div className="px-3 py-2 rounded-2xl rounded-tl-md bg-white/[0.04] border border-white/[0.06]">
                 <div className="flex items-center gap-1">
                   <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.2 }} className="w-1.5 h-1.5 rounded-full bg-white/40" />
@@ -1668,7 +1674,13 @@ export default function MessageThread({
                   <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.2, delay: 0.4 }} className="w-1.5 h-1.5 rounded-full bg-white/40" />
                 </div>
               </div>
-              <span className="font-mono-data text-[9px] text-white/20">James is typing...</span>
+              <span className="font-mono-data text-[9px] text-white/20">
+                {typingUserNames.length === 1
+                  ? `${typingUserNames[0]} is typing...`
+                  : typingUserNames.length === 2
+                  ? `${typingUserNames[0]} and ${typingUserNames[1]} are typing...`
+                  : `${typingUserNames[0]} and ${typingUserNames.length - 1} others are typing...`}
+              </span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1768,7 +1780,12 @@ export default function MessageThread({
             accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" />
 
           {isRecording ? (
-            <VoiceRecorder onRecorded={handleVoiceRecorded} onCancel={() => setIsRecording(false)} />
+            <div className="flex-1">
+              <VoiceRecorder 
+                onSendVoice={handleVoiceRecorded} 
+                onCancel={() => setIsRecording(false)} 
+              />
+            </div>
           ) : (
             <>
               <div className="flex-1 relative">
@@ -1833,6 +1850,54 @@ export default function MessageThread({
           )}
         </div>
       </div>
+
+      {/* Deliverable Request Modal */}
+      <DeliverableRequestModal
+        open={deliverableModalOpen}
+        onClose={() => {
+          setDeliverableModalOpen(false);
+          setDeliverableType(null);
+        }}
+        deliverableType={deliverableType}
+        onSubmit={(data) => {
+          console.log("Deliverable request:", data);
+          onCreateDeliverable(data.type);
+        }}
+      />
+
+      {/* Channel Management Modal */}
+      <ChannelManagementModal
+        open={channelModalOpen}
+        onClose={() => setChannelModalOpen(false)}
+        mode={channelModalMode}
+        channel={{
+          id: channel.id,
+          name: channel.name,
+          type: channel.type === "private" ? "private" : "public",
+          description: ""
+        }}
+        onSave={(data) => {
+          console.log("Channel saved:", data);
+          setChannelModalOpen(false);
+        }}
+        onDelete={(channelId) => {
+          console.log("Channel deleted:", channelId);
+          setChannelModalOpen(false);
+        }}
+      />
+
+      {/* Add Member Modal */}
+      <AddMemberToChannelModal
+        open={addMemberModalOpen}
+        onClose={() => setAddMemberModalOpen(false)}
+        channelName={channel.name}
+        existingMembers={workspace.members.map(m => m.id)}
+        availableMembers={availableUsers}
+        onAddMembers={(userIds) => {
+          console.log("Adding members:", userIds);
+          setAddMemberModalOpen(false);
+        }}
+      />
     </div>
   );
 }

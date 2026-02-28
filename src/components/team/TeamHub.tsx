@@ -7,6 +7,11 @@ import {
   X,
   Loader2,
   Database,
+  Download,
+  CheckCircle2,
+  AlertTriangle,
+  KeyRound,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TeamDashboardCards from './TeamDashboardCards';
@@ -15,7 +20,9 @@ import TeamMemberList from './TeamMemberList';
 import TeamMemberProfile from './TeamMemberProfile';
 import type { TeamCategory, TeamMember, TeamViewMode } from './types';
 import { useTeams, useTeamMembers, useTeamDashboardSummary } from '@/hooks/useTeam';
-import { createFullUser, type CreateFullUserRole } from '@/lib/data-service';
+import { createFullUser, type CreateFullUserRole, getTeamMembersForExport, calculateWorkloadBatch, addSkillToMember } from '@/lib/data-service';
+import { exportCSV, teamMemberExportColumns } from '@/lib/export-utils';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 
 export default function TeamHub() {
   const teamsQuery = useTeams();
@@ -30,11 +37,15 @@ export default function TeamHub() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
+  const [addResult, setAddResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
   const [addForm, setAddForm] = useState({
     name: '',
     email: '',
     primary_role: '',
+    password: '123456',
     work_capacity_hours: 8,
+    initial_skills: '' as string,
   });
 
   const handleSelectTeam = useCallback((category: TeamCategory) => {
@@ -62,6 +73,7 @@ export default function TeamHub() {
   const handleAddMember = useCallback(async () => {
     if (!addForm.name || !addForm.email || !addForm.primary_role) return;
     setAddingMember(true);
+    setAddResult(null);
     try {
       // Find matching team IDs based on role
       const roleToTeamCategory: Record<string, string[]> = {
@@ -97,29 +109,66 @@ export default function TeamHub() {
         'HR Manager': 'super_admin',
       };
 
-      // Use createFullUser which creates demo_users + user_profiles + team_members
-      await createFullUser({
+      // Use createFullUser which creates demo_users + user_profiles + team_members + workspace access
+      const result = await createFullUser({
         display_name: addForm.name,
         email: addForm.email,
-        password: '123456',
+        password: addForm.password || '123456',
         role: roleMapping[addForm.primary_role] || 'designer',
         primary_role_label: addForm.primary_role,
         team_ids: matchingTeamIds,
+      });
+
+      // Add initial skills if provided
+      if (addForm.initial_skills.trim() && result.team_member) {
+        const skillNames = addForm.initial_skills.split(',').map((s) => s.trim()).filter(Boolean);
+        for (const name of skillNames) {
+          try {
+            await addSkillToMember((result.team_member as any).id, name, 3);
+          } catch (skillErr) {
+            console.warn(`Failed to add skill "${name}":`, skillErr);
+          }
+        }
+      }
+
+      setAddResult({
+        success: true,
+        message: `✅ ${addForm.name} added successfully!\n\nLogin: ${addForm.email}\nPassword: ${addForm.password}\n\nAuto-created:\n• User Profile\n• Team Member Record\n• Role Assignment\n• Workspace Access (all clients)\n• Channel Memberships (general/announcements)\n• Demo Login Bridge`,
       });
 
       // Refresh data
       membersQuery.refetch();
       teamsQuery.refetch();
 
-      // Reset form
-      setAddForm({ name: '', email: '', primary_role: '', work_capacity_hours: 8 });
-      setShowAddDialog(false);
+      // Auto-close after 3 seconds
+      setTimeout(() => {
+        setAddForm({ name: '', email: '', primary_role: '', password: '123456', work_capacity_hours: 8, initial_skills: '' });
+        setShowAddDialog(false);
+        setAddResult(null);
+      }, 3000);
     } catch (err) {
       console.error('Failed to add team member:', err);
+      setAddResult({
+        success: false,
+        message: `❌ Failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      });
     } finally {
       setAddingMember(false);
     }
   }, [addForm, teamsData, membersQuery, teamsQuery]);
+
+  const handleRecalculateWorkloads = useCallback(async () => {
+    if (allTeamMembers.length === 0) return;
+    setRecalculating(true);
+    try {
+      await calculateWorkloadBatch(allTeamMembers.map((m) => m.id));
+      membersQuery.refetch();
+    } catch (err) {
+      console.error('Workload recalc failed:', err);
+    } finally {
+      setRecalculating(false);
+    }
+  }, [allTeamMembers, membersQuery]);
 
   const teamMembers = useMemo(() => {
     if (!selectedTeam) return [];
@@ -169,12 +218,7 @@ export default function TeamHub() {
                     Internal operations engine · {totalMembers} members
                   </p>
                   <span className="text-white/10">·</span>
-                  <div className="flex items-center gap-1">
-                    <Database className="w-2.5 h-2.5" style={{ color: isUsingRealData ? '#39FF14' : '#FFB800' }} />
-                    <span className="font-mono-data text-[10px]" style={{ color: isUsingRealData ? '#39FF14' : '#FFB800' }}>
-                      {isUsingRealData ? 'Live DB' : 'Mock'}
-                    </span>
-                  </div>
+                  <DataSourceIndicator isRealData={isUsingRealData} size="xs" />
                 </div>
               </div>
             </div>
@@ -193,6 +237,30 @@ export default function TeamHub() {
             >
               <UserPlus className="w-3.5 h-3.5 text-titan-cyan" />
               <span className="font-mono-data text-[10px] text-titan-cyan font-medium">+ Add Member</span>
+            </button>
+            <button
+              onClick={handleRecalculateWorkloads}
+              disabled={recalculating}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-titan-purple/10 border border-titan-purple/20 hover:bg-titan-purple/20 transition-colors cursor-pointer disabled:opacity-50"
+              title="Recalculate workloads from assigned deliverables"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5 text-titan-purple", recalculating && "animate-spin")} />
+              <span className="font-mono-data text-[10px] text-titan-purple font-medium">Workloads</span>
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const data = await getTeamMembersForExport();
+                  exportCSV(data, teamMemberExportColumns, 'titan_team');
+                } catch (err) {
+                  console.error('Export failed:', err);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors cursor-pointer"
+              title="Export CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-white/40" />
+              <span className="font-mono-data text-[10px] text-white/40 font-medium">CSV</span>
             </button>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
               <div className="w-1.5 h-1.5 rounded-full bg-titan-lime animate-pulse" />
@@ -342,6 +410,12 @@ export default function TeamHub() {
               <TeamMemberProfile
                 member={selectedMember}
                 onBack={selectedTeam ? handleBackToList : handleBackToGrid}
+                onRefresh={() => membersQuery.refetch()}
+                onDelete={() => {
+                  setSelectedMember(null);
+                  setViewMode(selectedTeam ? 'list' : 'grid');
+                  membersQuery.refetch();
+                }}
               />
             </motion.div>
           )}
@@ -386,6 +460,27 @@ export default function TeamHub() {
 
               {/* Dialog Body */}
               <div className="p-5 space-y-4">
+                {/* Success/Error feedback */}
+                {addResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={cn(
+                      'flex items-start gap-2 p-3 rounded-lg text-xs font-mono-data',
+                      addResult.success
+                        ? 'bg-titan-lime/10 border border-titan-lime/20 text-titan-lime'
+                        : 'bg-titan-magenta/10 border border-titan-magenta/20 text-titan-magenta'
+                    )}
+                  >
+                    {addResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    )}
+                    <span>{addResult.message}</span>
+                  </motion.div>
+                )}
+
                 <div>
                   <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
                     Full Name *
@@ -410,6 +505,34 @@ export default function TeamHub() {
                     placeholder="e.g. rafiq@agency.com"
                     className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/20 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
+                      <span className="flex items-center gap-1"><KeyRound className="w-3 h-3" /> Password</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.password}
+                      onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
+                      placeholder="123456"
+                      className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/20 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
+                      Capacity (hrs/day)
+                    </label>
+                    <input
+                      type="number"
+                      value={addForm.work_capacity_hours}
+                      onChange={(e) => setAddForm((f) => ({ ...f, work_capacity_hours: Number(e.target.value) || 8 }))}
+                      min={1}
+                      max={12}
+                      className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -438,15 +561,14 @@ export default function TeamHub() {
 
                 <div>
                   <label className="block font-mono-data text-[10px] text-white/40 uppercase tracking-wider mb-1.5">
-                    Work Capacity (hours/day)
+                    Initial Skills (comma-separated)
                   </label>
                   <input
-                    type="number"
-                    value={addForm.work_capacity_hours}
-                    onChange={(e) => setAddForm((f) => ({ ...f, work_capacity_hours: Number(e.target.value) || 8 }))}
-                    min={1}
-                    max={12}
-                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
+                    type="text"
+                    value={addForm.initial_skills}
+                    onChange={(e) => setAddForm((f) => ({ ...f, initial_skills: e.target.value }))}
+                    placeholder="e.g. Photoshop, Figma, Illustrator"
+                    className="w-full h-9 px-3 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/20 font-mono-data text-xs focus:outline-none focus:border-titan-cyan/30 transition-colors"
                   />
                 </div>
               </div>
@@ -454,7 +576,7 @@ export default function TeamHub() {
               {/* Dialog Footer */}
               <div className="px-5 py-2.5 bg-titan-cyan/[0.03] border-t border-titan-cyan/10">
                 <p className="font-mono-data text-[10px] text-titan-cyan/50 leading-relaxed">
-                  ✨ Auto-creates: Login Account (password: 123456) · User Profile · Team Assignment · Workspace Membership
+                  ✨ Auto-creates: Login Account · User Profile · Team Assignment · Workspace Membership · Skills
                 </p>
               </div>
               <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/[0.06]">

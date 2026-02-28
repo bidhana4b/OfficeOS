@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useAuth, getRoleLabel } from '@/lib/auth';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import SidebarNav from './SidebarNav';
 import TopCommandBar from './TopCommandBar';
 import HeroMetrics from './HeroMetrics';
@@ -14,13 +15,18 @@ import FinancialPulseChart from './FinancialPulseChart';
 import CommandPalette from './CommandPalette';
 import AIAssistant from './AIAssistant';
 import DashboardCustomization from './DashboardCustomization';
+import AgencyCommandCenter from './AgencyCommandCenter';
 import { MessagingHub } from '@/components/messaging';
-import { TeamHub } from '@/components/team';
+import { TeamHub, TeamWorkloadDashboard } from '@/components/team';
 import { ClientHub } from '@/components/clients';
 import { PackageHub } from '@/components/packages';
 import { SettingsHub } from '@/components/settings';
 import { ClientAssignmentCenter } from '@/components/assignments';
 import { InvoiceManagement, CampaignManagement, WalletAdmin } from '@/components/finance';
+import { ProjectsView } from '@/components/projects';
+import { AIInsightsView } from '@/components/ai';
+import { DeliverableFeed } from '@/components/deliverable-posts';
+import { BulkImportTool } from '@/components/imports';
 import {
   DesignerDashboard,
   MediaBuyerDashboard,
@@ -35,9 +41,11 @@ import {
   useDashboardNotifications,
   useRevenueChartData,
 } from '@/hooks/useDashboard';
-import { subscribeToTable, getDashboardLayout, type DashboardWidget } from '@/lib/data-service';
+import { getDashboardLayout, type DashboardWidget } from '@/lib/data-service';
 import DebugPanel from '@/components/debug/DebugPanel';
 import SystemStatusBanner from './SystemStatusBanner';
+import { useDataSource } from '@/hooks/useDataSource';
+import { SystemModeBanner } from '@/components/ui/data-source-indicator';
 
 export default function Dashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -57,6 +65,7 @@ export default function Dashboard() {
   const aiInsights = useDashboardAIInsights();
   const notifications = useDashboardNotifications();
   const revenueChart = useRevenueChartData();
+  const dataSource = useDataSource();
 
   // Load dashboard layout preferences
   useEffect(() => {
@@ -99,34 +108,8 @@ export default function Dashboard() {
     }
   };
 
-  // Real-time subscriptions for dashboard auto-refresh
-  useEffect(() => {
-    const unsubActivities = subscribeToTable('activities', () => {
-      activity.refetch();
-    });
-    const unsubNotifications = subscribeToTable('notifications', () => {
-      notifications.refetch();
-    });
-    const unsubDeliverables = subscribeToTable('deliverables', () => {
-      projects.refetch();
-    });
-    const unsubUsage = subscribeToTable('package_usage', () => {
-      metrics.refetch();
-    });
-    const unsubAssignments = subscribeToTable('client_assignments', () => {
-      activity.refetch();
-      notifications.refetch();
-    });
-
-    return () => {
-      unsubActivities();
-      unsubNotifications();
-      unsubDeliverables();
-      unsubUsage();
-      unsubAssignments();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activity.refetch, notifications.refetch, projects.refetch, metrics.refetch]);
+  // Realtime subscriptions are now handled inside each hook (useDashboardActivity, etc.)
+  // No need for manual subscribeToTable calls here.
 
   // ⌘K keyboard shortcut
   useEffect(() => {
@@ -195,15 +178,24 @@ export default function Dashboard() {
         {/* System Status Banner */}
         <SystemStatusBanner />
 
+        {/* Demo Mode Banner */}
+        {!dataSource.loading && <SystemModeBanner isLive={dataSource.isLive} />}
+
         {/* Dashboard Content */}
         <ErrorBoundary>
-        {activeNav === 'messaging' ? (
+        {activeNav === 'command-center' ? (
+          <AgencyCommandCenter onNavigate={setActiveNav} />
+        ) : activeNav === 'messaging' ? (
           <div className="flex-1 overflow-hidden">
             <MessagingHub />
           </div>
         ) : activeNav === 'team' ? (
           <div className="flex-1 overflow-hidden">
             <TeamHub />
+          </div>
+        ) : activeNav === 'team-workload' ? (
+          <div className="flex-1 overflow-hidden">
+            <TeamWorkloadDashboard />
           </div>
         ) : activeNav === 'clients' ? (
           <div className="flex-1 overflow-hidden">
@@ -236,6 +228,28 @@ export default function Dashboard() {
         ) : activeNav === 'debug' ? (
           <div className="flex-1 overflow-auto">
             <DebugPanel />
+          </div>
+        ) : activeNav === 'projects' ? (
+          <div className="flex-1 overflow-hidden">
+            <ProjectsView />
+          </div>
+        ) : activeNav === 'deliverables-feed' ? (
+          <div className="flex-1 overflow-hidden">
+            <DeliverableFeed
+              currentUserId={user?.id || 'unknown'}
+              currentUserType="team"
+              currentUserName={user?.display_name || 'Admin'}
+              showCreateForm={true}
+              title="Deliverable Posts"
+            />
+          </div>
+        ) : activeNav === 'ai-insights' ? (
+          <div className="flex-1 overflow-hidden">
+            <AIInsightsView />
+          </div>
+        ) : activeNav === 'bulk-import' ? (
+          <div className="flex-1 overflow-auto">
+            <BulkImportTool />
           </div>
         ) : user?.role === 'designer' ? (
           <DesignerDashboard />
@@ -285,6 +299,29 @@ export default function Dashboard() {
             </motion.div>
 
             {/* Hero Metrics */}
+            {(metrics.error || activity.error || projects.error) && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 p-3 rounded-xl bg-titan-magenta/5 border border-titan-magenta/20"
+              >
+                <AlertTriangle className="w-4 h-4 text-titan-magenta shrink-0" />
+                <p className="font-mono-data text-[11px] text-titan-magenta/80 flex-1">
+                  {metrics.error || activity.error || projects.error}
+                </p>
+                <button
+                  onClick={() => {
+                    metrics.refetch();
+                    activity.refetch();
+                    projects.refetch();
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-titan-magenta/10 hover:bg-titan-magenta/20 transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3 text-titan-magenta" />
+                  <span className="font-mono-data text-[10px] text-titan-magenta">Retry</span>
+                </button>
+              </motion.div>
+            )}
             <HeroMetrics data={metrics.data} loading={metrics.loading} />
 
             {/* Quick Actions */}

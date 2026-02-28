@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   UserCheck,
@@ -7,155 +7,21 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle2,
-  MessageSquare,
-  TrendingUp,
-  Calendar,
   FileText,
-  Package,
   Activity,
   Plus,
   Send,
   PhoneCall,
   RefreshCw,
-  ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-
-interface ClientData {
-  id: string;
-  business_name: string;
-  health_score: number;
-  status: string;
-  category: string;
-  contact_email: string;
-  package_name?: string;
-  pending_deliverables?: number;
-}
-
-interface PendingTask {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  priority: string;
-  client_name: string;
-  due_date: string | null;
-}
-
-interface InvoiceAlert {
-  id: string;
-  invoice_number: string;
-  amount: number;
-  status: string;
-  client_name: string;
-  due_date: string | null;
-}
-
-interface ActivityItem {
-  id: string;
-  action: string;
-  entity_type: string;
-  entity_name: string;
-  created_at: string;
-  user_name?: string;
-}
+import { useAccountManagerDashboard } from '@/hooks/useDashboard';
 
 export default function AccountManagerDashboard() {
   const { user } = useAuth();
-  const [clients, setClients] = useState<ClientData[]>([]);
-  const [tasks, setTasks] = useState<PendingTask[]>([]);
-  const [invoiceAlerts, setInvoiceAlerts] = useState<InvoiceAlert[]>([]);
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { clients, tasks, invoiceAlerts, activities, loading, error, refetch } = useAccountManagerDashboard();
   const [clientFilter, setClientFilter] = useState<'all' | 'healthy' | 'at_risk' | 'critical'>('all');
-
-  const fetchData = useCallback(async () => {
-    if (!supabase) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      // Fetch clients with package info
-      const { data: clientsData } = await supabase
-        .from('clients')
-        .select(`
-          id, business_name, health_score, status, category, contact_email,
-          client_packages(
-            package:packages(name),
-            is_active
-          )
-        `)
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .order('health_score', { ascending: true });
-
-      if (clientsData) {
-        setClients(clientsData.map((c: any) => {
-          const activePkg = c.client_packages?.find((cp: any) => cp.is_active);
-          return {
-            ...c,
-            package_name: activePkg?.package?.name || 'No Package',
-          };
-        }));
-      }
-
-      // Fetch pending deliverables
-      const { data: delData } = await supabase
-        .from('deliverables')
-        .select('*, clients(business_name)')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .in('status', ['pending', 'in_progress', 'review', 'revision'])
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (delData) {
-        setTasks(delData.map((d: any) => ({
-          id: d.id,
-          title: d.title,
-          type: d.type,
-          status: d.status,
-          priority: d.priority || 'normal',
-          client_name: d.clients?.business_name || 'Unknown',
-          due_date: d.due_date,
-        })));
-      }
-
-      // Fetch overdue/pending invoices
-      const { data: invData } = await supabase
-        .from('invoices')
-        .select('*, clients(business_name)')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .in('status', ['sent', 'overdue'])
-        .order('due_date', { ascending: true })
-        .limit(10);
-
-      if (invData) {
-        setInvoiceAlerts(invData.map((inv: any) => ({
-          id: inv.id,
-          invoice_number: inv.invoice_number,
-          amount: inv.amount,
-          status: inv.status,
-          client_name: inv.clients?.business_name || 'Unknown',
-          due_date: inv.due_date,
-        })));
-      }
-
-      // Fetch recent activities
-      const { data: actData } = await supabase
-        .from('activities')
-        .select('id, action, entity_type, entity_name, created_at, user_name')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (actData) setActivities(actData);
-    } catch (e) {
-      console.error('AccountManagerDashboard fetch error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   const activeClients = clients.filter(c => c.status === 'active');
   const atRiskClients = clients.filter(c => c.health_score < 50 && c.health_score >= 25 && c.status === 'active');
@@ -201,7 +67,26 @@ export default function AccountManagerDashboard() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-titan-lime/30 border-t-titan-lime rounded-full animate-spin" />
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-titan-lime/30 border-t-titan-lime rounded-full animate-spin mx-auto mb-3" />
+          <p className="font-mono-data text-[11px] text-white/30">Loading assigned clients…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-10 h-10 text-titan-magenta mx-auto mb-3 opacity-60" />
+          <h2 className="font-display font-bold text-lg text-white mb-2">Failed to Load Dashboard</h2>
+          <p className="font-mono-data text-xs text-white/40 mb-4">{error}</p>
+          <button onClick={refetch} className="flex items-center gap-2 mx-auto px-4 py-2 rounded-lg bg-titan-lime/20 border border-titan-lime/30 hover:bg-titan-lime/30 transition-colors">
+            <RefreshCw className="w-4 h-4 text-titan-lime" />
+            <span className="font-mono text-xs text-titan-lime">Retry</span>
+          </button>
+        </div>
       </div>
     );
   }

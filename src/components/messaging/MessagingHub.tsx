@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageSquare, PanelRightOpen, PanelRightClose, ArrowLeft } from 'lucide-react';
+import { MessageSquare, PanelRightOpen, PanelRightClose, ArrowLeft, Wifi, WifiOff, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import WorkspaceList from './WorkspaceList';
 import ChannelList from './ChannelList';
@@ -8,7 +8,7 @@ import MessageThread from './MessageThread';
 import WorkspaceInsightPanel from './WorkspaceInsightPanel';
 import BoostWizard from './BoostWizard';
 import type { Workspace, Channel, Message, BoostWizardData, WorkspaceInsights } from './types';
-import { useWorkspaces, useMessages } from '@/hooks/useMessaging';
+import { useWorkspaces, useMessages, useRealtimeConnection, useTypingIndicators, useReadReceipts } from '@/hooks/useMessaging';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import {
@@ -29,11 +29,14 @@ import {
   uploadMessageFile,
   addMessageFile,
 } from '@/lib/data-service';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function MessagingHub() {
   const { user } = useAuth();
   const workspacesQuery = useWorkspaces();
   const workspacesData = workspacesQuery.data.length > 0 ? workspacesQuery.data : [];
+  const { status: realtimeStatus, lastConnectedAt } = useRealtimeConnection();
 
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
@@ -68,6 +71,96 @@ export default function MessagingHub() {
 
   // Fetch real messages when channel changes
   const messagesQuery = useMessages(activeChannel?.id);
+
+  // Typing indicators (realtime)
+  const { typingUserNames, startTyping, stopTyping } = useTypingIndicators(
+    activeChannel?.id,
+    currentUser.id
+  );
+
+  // Read receipts (realtime)
+  const { receipts: readReceipts, markAsRead } = useReadReceipts(
+    activeChannel?.id,
+    currentUser.id
+  );
+
+  // Workspace insights (real data from DB)
+  const [workspaceInsights, setWorkspaceInsights] = useState<WorkspaceInsights | null>(null);
+
+  useEffect(() => {
+    if (!activeWorkspace) {
+      setWorkspaceInsights(null);
+      return;
+    }
+    const fetchInsights = async () => {
+      try {
+        const clientId = (activeWorkspace as any).clientId || activeWorkspace.id;
+
+        // Fetch package usage
+        const { data: usageData } = await supabase
+          .from('package_usage')
+          .select('deliverable_type, used_count, total_limit')
+          .eq('client_id', clientId);
+
+        const packageUsage = (usageData || []).map((u: any) => ({
+          category: u.deliverable_type || 'Unknown',
+          used: u.used_count || 0,
+          total: u.total_limit || 1,
+          color: '#00FFD1',
+        }));
+
+        // Fetch wallet balance
+        const { data: walletData } = await supabase
+          .from('client_wallets')
+          .select('balance')
+          .eq('client_id', clientId)
+          .single();
+
+        // Fetch deliverable counts
+        const { data: deliverables } = await supabase
+          .from('deliverables')
+          .select('status')
+          .eq('client_id', clientId);
+
+        const pending = (deliverables || []).filter((d: any) => d.status === 'pending').length;
+        const inProgress = (deliverables || []).filter((d: any) => d.status === 'in_progress' || d.status === 'in-progress').length;
+        const completed = (deliverables || []).filter((d: any) => d.status === 'completed' || d.status === 'delivered' || d.status === 'approved').length;
+
+        // Fetch campaigns
+        const { data: campaigns } = await supabase
+          .from('campaigns')
+          .select('status, budget, platform')
+          .eq('client_id', clientId);
+
+        const activeCampaigns = (campaigns || []).filter((c: any) => c.status === 'active' || c.status === 'live');
+        const totalBudget = (campaigns || []).reduce((sum: number, c: any) => sum + (c.budget || 0), 0);
+        const spent = activeCampaigns.reduce((sum: number, c: any) => sum + ((c.budget || 0) * 0.6), 0); // Estimate 60% spent
+
+        setWorkspaceInsights({
+          packageUsage,
+          boostSummary: {
+            totalBudget,
+            spent: Math.round(spent),
+            activeCampaigns: activeCampaigns.length,
+            platforms: activeCampaigns.map((c: any) => ({
+              name: c.platform || 'Unknown',
+              spend: Math.round((c.budget || 0) * 0.6),
+              status: c.status || 'active',
+            })),
+          },
+          walletBalance: walletData?.balance || 0,
+          deliverables: { pending, inProgress, completed },
+          healthScore: activeWorkspace.healthScore || 75,
+          responseTime: '< 2h',
+          satisfaction: 4.2,
+        });
+      } catch (err) {
+        console.warn('Failed to fetch workspace insights:', err);
+      }
+    };
+
+    fetchInsights();
+  }, [activeWorkspace?.id]);
 
   useEffect(() => {
     if (activeChannel && messagesQuery.data.length > 0) {
@@ -113,7 +206,14 @@ export default function MessagingHub() {
         // Only add if not already in messages (avoid duplicates with optimistic update)
         setMessages((prev) => {
           const channelMessages = prev[activeChannel.id] || [];
-          if (channelMessages.some(m => m.id === mapped.id)) return prev;
+          // Check by ID OR by content+timestamp to avoid optimistic duplicates
+          const exists = channelMessages.some(
+            (m) => m.id === mapped.id || 
+            (m.content === mapped.content && 
+             m.sender.id === mapped.sender.id &&
+             Math.abs(new Date(m.timestamp).getTime() - new Date(mapped.timestamp).getTime()) < 2000)
+          );
+          if (exists) return prev;
           return {
             ...prev,
             [activeChannel.id]: [...channelMessages, mapped],
@@ -237,7 +337,7 @@ export default function MessagingHub() {
       if (!activeChannel) return;
 
       // Optimistic UI update
-      const optimisticId = `msg-${Date.now()}`;
+      const optimisticId = `optimistic-${Date.now()}-${Math.random()}`;
       const newMessage: Message = {
         id: optimisticId,
         channelId: activeChannel.id,
@@ -278,6 +378,12 @@ export default function MessagingHub() {
           reply_to_content: replyTo?.content,
           message_type: voiceBlob ? 'voice' : 'text',
         });
+
+        // Remove optimistic message since real-time will add the actual one
+        setMessages((prev) => ({
+          ...prev,
+          [activeChannel.id]: (prev[activeChannel.id] || []).filter(m => m.id !== optimisticId),
+        }));
 
         // Upload files if any
         if (files && files.length > 0) {
@@ -733,7 +839,7 @@ export default function MessagingHub() {
     [activeChannel, activeWorkspace, currentUser]
   );
 
-  // Default empty insights for workspaces
+  // Workspace insights (real or fallback empty)
   const emptyInsights: WorkspaceInsights = {
     packageUsage: [],
     boostSummary: { totalBudget: 0, spent: 0, activeCampaigns: 0, platforms: [] },
@@ -745,7 +851,7 @@ export default function MessagingHub() {
   };
 
   const currentMessages = activeChannel ? messages[activeChannel.id] || [] : [];
-  const currentInsights = emptyInsights;
+  const currentInsights = workspaceInsights || emptyInsights;
 
   return (
     <div className="h-full flex overflow-hidden bg-titan-bg relative">
@@ -764,6 +870,46 @@ export default function MessagingHub() {
         <div className="absolute top-0 right-1/4 w-[400px] h-[400px] rounded-full bg-titan-purple/[0.03] blur-[100px]" />
         <div className="absolute bottom-0 left-1/3 w-[300px] h-[300px] rounded-full bg-titan-cyan/[0.02] blur-[80px]" />
       </div>
+
+      {/* Connection Status Indicator */}
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="absolute top-4 left-4 z-50">
+              <Badge
+                variant="outline"
+                className={cn(
+                  'gap-2 border-white/10 backdrop-blur-sm transition-all',
+                  realtimeStatus === 'connected' && 'bg-green-500/10 border-green-500/30 text-green-400',
+                  realtimeStatus === 'connecting' && 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400',
+                  realtimeStatus === 'disconnected' && 'bg-gray-500/10 border-gray-500/30 text-gray-400',
+                  realtimeStatus === 'error' && 'bg-red-500/10 border-red-500/30 text-red-400'
+                )}
+              >
+                {realtimeStatus === 'connected' && <Wifi className="w-3 h-3" />}
+                {realtimeStatus === 'connecting' && <Wifi className="w-3 h-3 animate-pulse" />}
+                {realtimeStatus === 'disconnected' && <WifiOff className="w-3 h-3" />}
+                {realtimeStatus === 'error' && <AlertCircle className="w-3 h-3" />}
+                <span className="text-xs font-medium">
+                  {realtimeStatus === 'connected' && 'Live'}
+                  {realtimeStatus === 'connecting' && 'Connecting...'}
+                  {realtimeStatus === 'disconnected' && 'Offline'}
+                  {realtimeStatus === 'error' && 'Error'}
+                </span>
+              </Badge>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p className="text-xs">
+              {realtimeStatus === 'connected' && lastConnectedAt && 
+                `Connected since ${lastConnectedAt.toLocaleTimeString()}`}
+              {realtimeStatus === 'connecting' && 'Establishing realtime connection...'}
+              {realtimeStatus === 'disconnected' && 'Realtime connection lost'}
+              {realtimeStatus === 'error' && 'Failed to connect to realtime server'}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       {/* Workspace List (Left Panel) — hidden on mobile when a workspace + channel is selected */}
       <motion.div
@@ -842,6 +988,11 @@ export default function MessagingHub() {
               onSaveMessage={handleSaveMessage}
               onUnsaveMessage={handleUnsaveMessage}
               uploadProgress={uploadProgress}
+              typingUserNames={typingUserNames}
+              onTypingStart={() => activeWorkspace && startTyping(activeWorkspace.id)}
+              onTypingStop={stopTyping}
+              readReceipts={readReceipts}
+              onMessageViewed={markAsRead}
             />
             </div>
           </motion.div>

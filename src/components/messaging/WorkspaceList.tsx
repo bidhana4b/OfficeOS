@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Workspace } from './types';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 
 interface WorkspaceListProps {
   workspaces: Workspace[];
@@ -85,7 +86,10 @@ export default function WorkspaceList({ workspaces, activeWorkspaceId, onSelect 
       {/* Header */}
       <div className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-display font-bold text-base text-white">Workspaces</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-display font-bold text-base text-white">Workspaces</h2>
+            <DataSourceIndicator isRealData={workspaces.length > 0} size="xs" />
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="font-mono-data text-[10px] text-titan-cyan px-2 py-0.5 rounded-full bg-titan-cyan/10 border border-titan-cyan/20">
               {workspaces.length} clients

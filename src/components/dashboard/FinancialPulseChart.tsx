@@ -37,6 +37,36 @@ export default function FinancialPulseChart({ data, loading }: FinancialPulseCha
   const totalExpenses = revenueChartData.reduce((sum, d) => sum + d.expenses, 0);
   const profit = totalRevenue - totalExpenses;
 
+  if (loading) {
+    return (
+      <div className="glass-card border border-white/[0.06] rounded-xl overflow-hidden">
+        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-white/[0.06]">
+          <TrendingUp className="w-4 h-4 text-titan-cyan/60" />
+          <h3 className="font-display font-bold text-sm text-white">Financial Pulse</h3>
+        </div>
+        <div className="flex items-center justify-center h-[280px]">
+          <div className="w-6 h-6 border-2 border-titan-cyan/20 border-t-titan-cyan rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (revenueChartData.length === 0) {
+    return (
+      <div className="glass-card border border-white/[0.06] rounded-xl overflow-hidden">
+        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-white/[0.06]">
+          <TrendingUp className="w-4 h-4 text-titan-cyan/60" />
+          <h3 className="font-display font-bold text-sm text-white">Financial Pulse</h3>
+        </div>
+        <div className="flex flex-col items-center justify-center h-[280px] text-center px-4">
+          <TrendingUp className="w-8 h-8 text-white/10 mb-3" />
+          <p className="font-mono-data text-[11px] text-white/30">No revenue data yet</p>
+          <p className="font-mono-data text-[10px] text-white/15 mt-1">Financial data will appear here once invoices are tracked</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="glass-card border border-white/[0.06] rounded-xl overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">

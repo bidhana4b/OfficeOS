@@ -8,9 +8,11 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 
 interface SystemStatus {
   connected: boolean;
@@ -18,31 +20,36 @@ interface SystemStatus {
   hasTeamMembers: boolean;
   hasDemoUsers: boolean;
   hasActivities: boolean;
+  hasDeliverables: boolean;
+  hasInvoices: boolean;
   tablesCounted: number;
 }
 
 export default function SystemStatusBanner() {
+  const { isDemoMode, user } = useAuth();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [checking, setChecking] = useState(true);
   const [dismissed, setDismissed] = useState(false);
 
   const checkStatus = useCallback(async () => {
     if (!supabase) {
-      setStatus({ connected: false, hasClients: false, hasTeamMembers: false, hasDemoUsers: false, hasActivities: false, tablesCounted: 0 });
+      setStatus({ connected: false, hasClients: false, hasTeamMembers: false, hasDemoUsers: false, hasActivities: false, hasDeliverables: false, hasInvoices: false, tablesCounted: 0 });
       setChecking(false);
       return;
     }
 
     setChecking(true);
     try {
-      const [clientsRes, teamRes, usersRes, activitiesRes] = await Promise.all([
+      const [clientsRes, teamRes, usersRes, activitiesRes, deliverablesRes, invoicesRes] = await Promise.all([
         supabase.from('clients').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
         supabase.from('team_members').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
         supabase.from('demo_users').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
         supabase.from('activities').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
+        supabase.from('deliverables').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
+        supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID),
       ]);
 
-      const tables = [clientsRes, teamRes, usersRes, activitiesRes];
+      const tables = [clientsRes, teamRes, usersRes, activitiesRes, deliverablesRes, invoicesRes];
       const counted = tables.filter(r => !r.error).length;
 
       setStatus({
@@ -51,10 +58,12 @@ export default function SystemStatusBanner() {
         hasTeamMembers: (teamRes.count || 0) > 0,
         hasDemoUsers: (usersRes.count || 0) > 0,
         hasActivities: (activitiesRes.count || 0) > 0,
+        hasDeliverables: (deliverablesRes.count || 0) > 0,
+        hasInvoices: (invoicesRes.count || 0) > 0,
         tablesCounted: counted,
       });
     } catch {
-      setStatus({ connected: false, hasClients: false, hasTeamMembers: false, hasDemoUsers: false, hasActivities: false, tablesCounted: 0 });
+      setStatus({ connected: false, hasClients: false, hasTeamMembers: false, hasDemoUsers: false, hasActivities: false, hasDeliverables: false, hasInvoices: false, tablesCounted: 0 });
     } finally {
       setChecking(false);
     }
@@ -67,8 +76,11 @@ export default function SystemStatusBanner() {
 
   // If everything looks good, show a brief success indicator
   const allGood = status.connected && status.hasClients && status.hasTeamMembers && status.hasDemoUsers;
+  const dataHealth = [status.hasClients, status.hasTeamMembers, status.hasDemoUsers, status.hasActivities, status.hasDeliverables, status.hasInvoices];
+  const healthScore = dataHealth.filter(Boolean).length;
+  const totalChecks = dataHealth.length;
 
-  if (allGood) {
+  if (allGood && !isDemoMode) {
     return (
       <motion.div
         initial={{ opacity: 0, height: 0 }}
@@ -79,9 +91,34 @@ export default function SystemStatusBanner() {
         <div className="flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 text-titan-lime/60" />
           <span className="text-[10px] font-mono text-titan-lime/50">
-            System connected — live data active
+            System connected — live data active ({healthScore}/{totalChecks} checks passed)
           </span>
           <Wifi className="w-3 h-3 text-titan-lime/40" />
+        </div>
+        <button onClick={() => setDismissed(true)} className="p-0.5 hover:bg-white/5 rounded">
+          <X className="w-3 h-3 text-white/20" />
+        </button>
+      </motion.div>
+    );
+  }
+
+  if (allGood && isDemoMode) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        exit={{ opacity: 0, height: 0 }}
+        className="px-4 py-1.5 bg-titan-cyan/[0.06] border-b border-titan-cyan/10 flex items-center justify-between"
+      >
+        <div className="flex items-center gap-2">
+          <Shield className="w-3.5 h-3.5 text-titan-cyan/60" />
+          <span className="text-[10px] font-mono text-titan-cyan/50">
+            Demo Mode — logged in as {user?.display_name} ({user?.role})
+          </span>
+          <span className="px-1.5 py-0.5 rounded bg-titan-cyan/10 text-[9px] font-mono text-titan-cyan/50 border border-titan-cyan/20">
+            {healthScore}/{totalChecks} data checks passed
+          </span>
+          <Wifi className="w-3 h-3 text-titan-cyan/40" />
         </div>
         <button onClick={() => setDismissed(true)} className="p-0.5 hover:bg-white/5 rounded">
           <X className="w-3 h-3 text-white/20" />
@@ -93,10 +130,11 @@ export default function SystemStatusBanner() {
   // Show warning banner
   const issues: string[] = [];
   if (!status.connected) issues.push('Database disconnected');
-  if (!status.hasClients) issues.push('No clients in DB');
-  if (!status.hasTeamMembers) issues.push('No team members in DB');
+  if (!status.hasClients) issues.push('No clients');
+  if (!status.hasTeamMembers) issues.push('No team members');
   if (!status.hasDemoUsers) issues.push('No login accounts');
-  if (!status.hasActivities) issues.push('No activity data');
+  if (!status.hasDeliverables) issues.push('No deliverables');
+  if (!status.hasInvoices) issues.push('No invoices');
 
   return (
     <AnimatePresence>
@@ -114,9 +152,14 @@ export default function SystemStatusBanner() {
               <WifiOff className="w-3.5 h-3.5 text-red-400/60" />
             )}
             <span className="text-[10px] font-mono text-yellow-500/70 font-medium">
-              {status.connected ? 'DB connected but incomplete' : 'DB not connected'}
+              {status.connected ? `DB connected — ${healthScore}/${totalChecks} checks passed` : 'DB not connected'}
             </span>
           </div>
+          {isDemoMode && (
+            <span className="px-1.5 py-0.5 rounded bg-titan-cyan/10 text-[9px] font-mono text-titan-cyan/50 border border-titan-cyan/20">
+              Demo Mode
+            </span>
+          )}
           <div className="hidden sm:flex items-center gap-1.5">
             {issues.map((issue, i) => (
               <span key={i} className="px-1.5 py-0.5 rounded bg-yellow-500/10 text-[9px] font-mono text-yellow-500/50">
@@ -125,7 +168,7 @@ export default function SystemStatusBanner() {
             ))}
           </div>
           <span className="text-[9px] font-mono text-white/20">
-            Some components showing demo data
+            {issues.length > 0 ? 'Seed data may be needed' : 'Setup incomplete'}
           </span>
         </div>
         <div className="flex items-center gap-1.5">

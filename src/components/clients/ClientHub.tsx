@@ -11,21 +11,28 @@ import {
   Building2, User, Phone, Mail, Globe, MapPin, ChevronRight, ChevronLeft,
   Shield, CreditCard, Eye, EyeOff, Key, CheckCircle2, Loader2, 
   DollarSign, Star, Zap, FileText, UserCheck, Hash, Info, Sparkles,
-  Megaphone, BookUser, ClipboardList, ArrowRight, Check
+  Megaphone, BookUser, ClipboardList, ArrowRight, Check, Download, 
+  CheckSquare, Square, Archive, UserCog
 } from 'lucide-react';
 import { useClients, useClientActivities, useClientPerformance } from '@/hooks/useClients';
-import { onboardClient, updateClient, deleteClient, subscribeToTable, getClientListForSelect } from '@/lib/data-service';
+import { onboardClient, updateClient, deleteClient, subscribeToTable, getClientListForSelect, getClientsForExport, bulkUpdateClientStatus, bulkArchiveClients } from '@/lib/data-service';
+import { exportCSV, clientExportColumns } from '@/lib/export-utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function ClientHub() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [newClientForm, setNewClientForm] = useState({
     // Step 1: Business Info
     business_name: '',
@@ -147,6 +154,10 @@ export function ClientHub() {
         onboarding_notes: newClientForm.onboarding_notes || undefined,
       });
       setCreateSuccess(true);
+      // Log any partial errors (non-critical) from onboarding steps
+      if (result.errors && result.errors.length > 0) {
+        console.warn('[ClientHub] Onboarding partial errors:', result.errors);
+      }
       setTimeout(() => {
         setShowCreateDialog(false);
         setOnboardStep(1);
@@ -173,6 +184,68 @@ export function ClientHub() {
 
   const isUsingRealData = clientsQuery.data.length > 0;
 
+  // Export clients to CSV
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const data = await getClientsForExport();
+      exportCSV(data, clientExportColumns, 'titan_clients');
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  }, []);
+
+  // Toggle bulk selection
+  const toggleBulkSelect = useCallback((clientId: string) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(clientId)) next.delete(clientId);
+      else next.add(clientId);
+      return next;
+    });
+  }, []);
+
+  const selectAllClients = useCallback(() => {
+    setBulkSelected(new Set(clientsQuery.data.map((c) => c.id)));
+  }, [clientsQuery.data]);
+
+  const deselectAllClients = useCallback(() => {
+    setBulkSelected(new Set());
+  }, []);
+
+  // Bulk actions
+  const handleBulkStatusUpdate = useCallback(async (status: string) => {
+    if (bulkSelected.size === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await bulkUpdateClientStatus(Array.from(bulkSelected), status);
+      await clientsQuery.refetch();
+      setBulkSelected(new Set());
+      setBulkMode(false);
+    } catch (err) {
+      console.error('Bulk update failed:', err);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }, [bulkSelected, clientsQuery]);
+
+  const handleBulkArchive = useCallback(async () => {
+    if (bulkSelected.size === 0) return;
+    setBulkActionLoading(true);
+    try {
+      await bulkArchiveClients(Array.from(bulkSelected));
+      await clientsQuery.refetch();
+      setBulkSelected(new Set());
+      setBulkMode(false);
+    } catch (err) {
+      console.error('Bulk archive failed:', err);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }, [bulkSelected, clientsQuery]);
+
   return (
     <div className="flex h-screen bg-[#0A0E27]">
       {/* Left Sidebar - Client List */}
@@ -180,27 +253,95 @@ export function ClientHub() {
         <div className="p-3 border-b border-white/10 flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
             <span className="font-display font-bold text-sm text-white/70">Clients</span>
-            <Button
-              size="sm"
-              onClick={() => { setShowCreateDialog(true); setOnboardStep(1); }}
-              className="bg-titan-cyan/20 hover:bg-titan-cyan/30 text-titan-cyan border border-titan-cyan/30 h-7 px-2 text-xs"
-            >
-              <Plus className="w-3 h-3 mr-1" />
-              Add
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleExport}
+                disabled={exporting}
+                className="h-7 w-7 p-0 text-white/40 hover:text-titan-cyan hover:bg-titan-cyan/10"
+                title="Export CSV"
+              >
+                {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setBulkMode(!bulkMode); setBulkSelected(new Set()); }}
+                className={cn(
+                  "h-7 w-7 p-0 hover:bg-white/10",
+                  bulkMode ? 'text-titan-magenta' : 'text-white/40 hover:text-white/60'
+                )}
+                title="Bulk Select"
+              >
+                <CheckSquare className="w-3 h-3" />
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => { setShowCreateDialog(true); setOnboardStep(1); }}
+                className="bg-titan-cyan/20 hover:bg-titan-cyan/30 text-titan-cyan border border-titan-cyan/30 h-7 px-2 text-xs"
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Add
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Database className="w-3 h-3" style={{ color: isUsingRealData ? '#39FF14' : '#FFB800' }} />
-            <span className="text-[10px] font-mono" style={{ color: isUsingRealData ? '#39FF14' : '#FFB800' }}>
-              {isUsingRealData ? `${clientsQuery.data.length} from DB` : 'Mock data (DB empty)'}
-            </span>
-          </div>
+          {/* Bulk mode toolbar */}
+          {bulkMode && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-[10px] font-mono text-titan-magenta mr-1">
+                {bulkSelected.size} selected
+              </span>
+              <Button size="sm" variant="ghost" onClick={selectAllClients} className="h-5 px-1.5 text-[9px] text-white/50 hover:text-white">
+                All
+              </Button>
+              <Button size="sm" variant="ghost" onClick={deselectAllClients} className="h-5 px-1.5 text-[9px] text-white/50 hover:text-white">
+                None
+              </Button>
+              {bulkSelected.size > 0 && (
+                <>
+                  <Button 
+                    size="sm" variant="ghost" 
+                    onClick={() => handleBulkStatusUpdate('active')}
+                    disabled={bulkActionLoading}
+                    className="h-5 px-1.5 text-[9px] text-green-400 hover:bg-green-400/10"
+                  >
+                    Active
+                  </Button>
+                  <Button 
+                    size="sm" variant="ghost" 
+                    onClick={() => handleBulkStatusUpdate('paused')}
+                    disabled={bulkActionLoading}
+                    className="h-5 px-1.5 text-[9px] text-yellow-400 hover:bg-yellow-400/10"
+                  >
+                    Pause
+                  </Button>
+                  <Button 
+                    size="sm" variant="ghost" 
+                    onClick={handleBulkArchive}
+                    disabled={bulkActionLoading}
+                    className="h-5 px-1.5 text-[9px] text-red-400 hover:bg-red-400/10"
+                  >
+                    <Archive className="w-2.5 h-2.5 mr-0.5" />
+                    Archive
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+          <DataSourceIndicator 
+            isRealData={isUsingRealData} 
+            label={isUsingRealData ? `${clientsQuery.data.length} from DB` : 'Demo data (DB empty)'}
+            size="sm"
+          />
         </div>
         <div className="flex-1 overflow-hidden">
           <ClientList
             clients={clients}
             selectedClientId={selectedClientId}
-            onSelectClient={setSelectedClientId}
+            onSelectClient={bulkMode ? toggleBulkSelect : setSelectedClientId}
+            bulkMode={bulkMode}
+            bulkSelected={bulkSelected}
           />
         </div>
       </div>
@@ -1095,7 +1236,7 @@ export function ClientHub() {
                 <TabsContent value="overview" className="flex-1 overflow-hidden m-0">
                   <ScrollArea className="h-full">
                     <div className="p-6">
-                      <ClientProfile client={selectedClient} onRefresh={clientsQuery.refetch} />
+                      <ClientProfile client={selectedClient} onRefresh={clientsQuery.refetch} onDelete={() => { setSelectedClientId(null); clientsQuery.refetch(); }} />
                     </div>
                   </ScrollArea>
                 </TabsContent>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Palette,
@@ -9,8 +9,6 @@ import {
   Video,
   PenTool,
   Calendar,
-  Users,
-  TrendingUp,
   Eye,
   RotateCcw,
   Plus,
@@ -19,119 +17,16 @@ import {
   Zap,
   Target,
   BarChart3,
-  Timer,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-
-interface Deliverable {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  priority: string;
-  due_date: string | null;
-  client_id: string;
-  client_name?: string;
-  created_at: string;
-}
-
-interface ClientInfo {
-  id: string;
-  business_name: string;
-  health_score: number;
-  status: string;
-}
-
-interface ActivityItem {
-  id: string;
-  action: string;
-  entity_type: string;
-  entity_name: string;
-  created_at: string;
-}
+import { useDesignerDashboard } from '@/hooks/useDashboard';
 
 export default function DesignerDashboard() {
   const { user } = useAuth();
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
-  const [clients, setClients] = useState<ClientInfo[]>([]);
-  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { deliverables, loading, error, refetch } = useDesignerDashboard();
   const [activeTab, setActiveTab] = useState<'all' | 'in_progress' | 'review' | 'completed'>('all');
-
-  const fetchData = useCallback(async () => {
-    if (!supabase || !user) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      // Fetch deliverables assigned to this designer (via team_members)
-      const { data: teamMember } = await supabase
-        .from('team_members')
-        .select('id')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .eq('role', 'designer')
-        .limit(1)
-        .maybeSingle();
-
-      if (teamMember) {
-        const { data: delData } = await supabase
-          .from('deliverables')
-          .select('*, clients(business_name)')
-          .eq('assigned_to', teamMember.id)
-          .eq('tenant_id', DEMO_TENANT_ID)
-          .order('created_at', { ascending: false })
-          .limit(30);
-
-        if (delData) {
-          setDeliverables(delData.map((d: any) => ({
-            ...d,
-            client_name: d.clients?.business_name || 'Unknown',
-          })));
-        }
-      } else {
-        // Fallback: fetch all deliverables if no team member found
-        const { data: delData } = await supabase
-          .from('deliverables')
-          .select('*, clients(business_name)')
-          .eq('tenant_id', DEMO_TENANT_ID)
-          .order('created_at', { ascending: false })
-          .limit(30);
-
-        if (delData) {
-          setDeliverables(delData.map((d: any) => ({
-            ...d,
-            client_name: d.clients?.business_name || 'Unknown',
-          })));
-        }
-      }
-
-      // Fetch assigned clients
-      const { data: clientsData } = await supabase
-        .from('clients')
-        .select('id, business_name, health_score, status')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .eq('status', 'active')
-        .order('business_name');
-
-      if (clientsData) setClients(clientsData);
-
-      // Fetch recent activities
-      const { data: actData } = await supabase
-        .from('activities')
-        .select('id, action, entity_type, entity_name, created_at')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .order('created_at', { ascending: false })
-        .limit(8);
-
-      if (actData) setRecentActivities(actData);
-    } catch (e) {
-      console.error('DesignerDashboard fetch error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   const pendingDeliverables = deliverables.filter(d => d.status === 'in_progress' || d.status === 'pending');
   const reviewDeliverables = deliverables.filter(d => d.status === 'review');
@@ -141,7 +36,6 @@ export default function DesignerDashboard() {
     return new Date(d.due_date) < new Date() && d.status !== 'completed' && d.status !== 'delivered';
   });
 
-  // Weekly stats
   const thisWeek = new Date();
   thisWeek.setDate(thisWeek.getDate() - 7);
   const completedThisWeek = completedDeliverables.filter(d =>
@@ -196,7 +90,6 @@ export default function DesignerDashboard() {
     { label: 'Mark Complete', icon: CheckCircle2, color: 'yellow-400' },
   ];
 
-  // Deliverable type breakdown
   const typeBreakdown = deliverables.reduce((acc, d) => {
     const t = d.type || 'other';
     acc[t] = (acc[t] || 0) + 1;
@@ -206,7 +99,29 @@ export default function DesignerDashboard() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-titan-purple/30 border-t-titan-purple rounded-full animate-spin" />
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-titan-purple/30 border-t-titan-purple rounded-full animate-spin mx-auto mb-3" />
+          <p className="font-mono-data text-[11px] text-white/30">Loading your deliverables…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-10 h-10 text-titan-magenta mx-auto mb-3 opacity-60" />
+          <h2 className="font-display font-bold text-lg text-white mb-2">Failed to Load Dashboard</h2>
+          <p className="font-mono-data text-xs text-white/40 mb-4">{error}</p>
+          <button
+            onClick={refetch}
+            className="flex items-center gap-2 mx-auto px-4 py-2 rounded-lg bg-titan-purple/20 border border-titan-purple/30 hover:bg-titan-purple/30 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4 text-titan-purple" />
+            <span className="font-mono text-xs text-titan-purple">Retry</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -416,82 +331,21 @@ export default function DesignerDashboard() {
             </div>
           </motion.div>
 
-          {/* Active Clients */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-5"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-bold text-sm text-white">Active Clients</h2>
-              <Users className="w-4 h-4 text-white/30" />
-            </div>
-
-            <div className="space-y-2 max-h-[250px] overflow-y-auto scrollbar-hide">
-              {clients.length === 0 ? (
-                <div className="text-center py-8 text-white/20">
-                  <Users className="w-6 h-6 mx-auto mb-2 opacity-40" />
-                  <p className="font-mono text-xs">No clients found</p>
-                </div>
-              ) : (
-                clients.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] hover:border-white/[0.1] transition-all"
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-titan-purple/20 to-titan-cyan/10 border border-white/[0.06] flex items-center justify-center">
-                      <span className="font-display font-bold text-xs text-white/60">
-                        {c.business_name.charAt(0)}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-display text-xs text-white truncate">{c.business_name}</p>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <TrendingUp className="w-3 h-3 text-titan-lime" />
-                        <span className="font-mono-data text-[10px] text-white/30">
-                          Health: {c.health_score || 0}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </motion.div>
-
-          {/* Recent Activity */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.35 }}
-            className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-5"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-bold text-sm text-white flex items-center gap-2">
-                <Timer className="w-4 h-4 text-titan-purple" /> Recent Activity
-              </h2>
-            </div>
-            <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-hide">
-              {recentActivities.length === 0 ? (
-                <p className="text-center font-mono text-[10px] text-white/20 py-4">No recent activity</p>
-              ) : (
-                recentActivities.map((a) => (
-                  <div key={a.id} className="flex items-start gap-2 p-2 rounded-lg bg-white/[0.01]">
-                    <div className="w-1.5 h-1.5 rounded-full bg-titan-cyan mt-1.5 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="font-mono text-[11px] text-white/60 truncate">
-                        {a.action} — {a.entity_name}
-                      </p>
-                      <p className="font-mono-data text-[9px] text-white/20">
-                        {new Date(a.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </motion.div>
+          {/* Empty state message for no assignments */}
+          {deliverables.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="rounded-xl bg-titan-purple/5 border border-titan-purple/20 p-5 text-center"
+            >
+              <Palette className="w-8 h-8 text-titan-purple/40 mx-auto mb-3" />
+              <h3 className="font-display font-bold text-sm text-white/70 mb-1">No Assigned Deliverables</h3>
+              <p className="font-mono-data text-[10px] text-white/30">
+                You don't have any deliverables assigned yet. Contact your account manager to get started.
+              </p>
+            </motion.div>
+          )}
         </div>
       </div>
 

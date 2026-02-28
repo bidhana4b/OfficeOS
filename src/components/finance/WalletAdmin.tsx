@@ -27,6 +27,7 @@ import {
   getWalletTransactions,
   subscribeToTable,
 } from '@/lib/data-service';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 
 interface ClientWallet {
   id: string;
@@ -178,9 +179,12 @@ export default function WalletAdmin() {
               <Wallet className="w-5 h-5 text-titan-lime" />
               Wallet Admin
             </h2>
-            <p className="font-mono text-xs text-white/30 mt-1">
-              Manage client wallet balances, credits, and debits
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="font-mono text-xs text-white/30">
+                Manage client wallet balances, credits, and debits
+              </p>
+              <DataSourceIndicator isRealData={wallets.length > 0} size="xs" />
+            </div>
           </div>
           <div className="flex gap-2">
             <Button

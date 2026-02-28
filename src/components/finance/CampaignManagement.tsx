@@ -27,6 +27,7 @@ import {
   X,
   Save,
   Wallet,
+  Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -44,7 +45,10 @@ import {
   deleteCampaign,
   getClientListForSelect,
   subscribeToTable,
+  getCampaignsForExport,
 } from '@/lib/data-service';
+import { exportCSV, campaignExportColumns } from '@/lib/export-utils';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 import { supabase } from '@/lib/supabase';
 
 interface Campaign {
@@ -287,13 +291,32 @@ export default function CampaignManagement() {
               </div>
               Campaign Manager
             </h2>
-            <p className="font-mono text-xs text-white/30 mt-1.5 ml-[42px]">
-              Manage media buying campaigns, boost requests & ad spend tracking
-            </p>
+            <div className="flex items-center gap-2 mt-1.5 ml-[42px]">
+              <p className="font-mono text-xs text-white/30">
+                Manage media buying campaigns, boost requests & ad spend tracking
+              </p>
+              <DataSourceIndicator isRealData={campaigns.length > 0} size="xs" />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => fetchCampaigns()} className="border-white/[0.08] text-white/40 hover:bg-white/[0.04] hover:text-white/60 gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const data = await getCampaignsForExport();
+                  exportCSV(data, campaignExportColumns, 'titan_campaigns');
+                } catch (err) {
+                  console.error('Export failed:', err);
+                }
+              }}
+              className="border-white/[0.08] text-white/40 hover:bg-white/[0.04] hover:text-white/60 gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              CSV
             </Button>
             <Button onClick={() => setShowCreateDialog(true)} className="bg-titan-purple/15 border border-titan-purple/30 text-titan-purple hover:bg-titan-purple/25 font-display font-bold text-sm gap-2">
               <Plus className="w-4 h-4" />

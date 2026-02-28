@@ -8,12 +8,19 @@ import {
   reactivateUser,
   deleteUser,
   resetUserPassword,
+  inviteUser,
+  getInvitations,
+  cancelInvitation,
+  migrateDemoUser,
   type DetailedUser,
   type CreateFullUserInput,
+  type InviteUserInput,
+  type UserInvitation,
 } from '@/lib/data-service';
 
 export function useUserManagement() {
   const [users, setUsers] = useState<DetailedUser[]>([]);
+  const [invitations, setInvitations] = useState<UserInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
@@ -32,9 +39,19 @@ export function useUserManagement() {
     }
   }, []);
 
+  const fetchInvitations = useCallback(async () => {
+    try {
+      const data = await getInvitations();
+      setInvitations(data);
+    } catch (e: any) {
+      console.error('[useUserManagement] invitations fetch error:', e);
+    }
+  }, []);
+
   // Subscribe to real-time changes
   useEffect(() => {
     fetchUsers();
+    fetchInvitations();
 
     if (!supabase) return;
 
@@ -46,10 +63,13 @@ export function useUserManagement() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles', filter: `tenant_id=eq.${DEMO_TENANT_ID}` }, () => {
         fetchUsers();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_invitations', filter: `tenant_id=eq.${DEMO_TENANT_ID}` }, () => {
+        fetchInvitations();
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [fetchUsers]);
+  }, [fetchUsers, fetchInvitations]);
 
   const setUserActionLoading = (userId: string, state: boolean) => {
     setActionLoading((prev) => ({ ...prev, [userId]: state }));
@@ -59,6 +79,28 @@ export function useUserManagement() {
     const result = await createFullUser(input);
     await fetchUsers();
     return result;
+  }, [fetchUsers]);
+
+  const handleInviteUser = useCallback(async (input: InviteUserInput) => {
+    const result = await inviteUser(input);
+    await fetchInvitations();
+    return result;
+  }, [fetchInvitations]);
+
+  const handleCancelInvitation = useCallback(async (invitationId: string) => {
+    await cancelInvitation(invitationId);
+    await fetchInvitations();
+  }, [fetchInvitations]);
+
+  const handleMigrateDemoUser = useCallback(async (demoUserId: string, password?: string) => {
+    setUserActionLoading(demoUserId, true);
+    try {
+      const result = await migrateDemoUser(demoUserId, password);
+      await fetchUsers();
+      return result;
+    } finally {
+      setUserActionLoading(demoUserId, false);
+    }
   }, [fetchUsers]);
 
   const handleUpdateUser = useCallback(async (demoUserId: string, updates: Parameters<typeof updateUser>[1]) => {
@@ -113,11 +155,16 @@ export function useUserManagement() {
 
   return {
     users,
+    invitations,
     loading,
     error,
     actionLoading,
     refetch: fetchUsers,
+    refetchInvitations: fetchInvitations,
     createUser: handleCreateUser,
+    inviteUser: handleInviteUser,
+    cancelInvitation: handleCancelInvitation,
+    migrateDemoUser: handleMigrateDemoUser,
     updateUser: handleUpdateUser,
     deactivateUser: handleDeactivateUser,
     reactivateUser: handleReactivateUser,

@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import type { TeamInfo, TeamMember, TeamDashboardSummary } from '@/components/team/types';
+import {
+  calculateWorkload,
+  getSkillsForMember,
+  addSkillToMember,
+  updateSkillLevel,
+  removeSkillFromMember,
+  type WorkloadData,
+  type SkillRecord,
+} from '@/lib/data-service';
 
 export function useTeams() {
   const [data, setData] = useState<TeamInfo[]>([]);
@@ -116,42 +125,132 @@ export function useTeamDashboardSummary(): {
   data: TeamDashboardSummary | null;
   loading: boolean;
   error: string | null;
+  refetch: () => void;
 } {
   const [data, setData] = useState<TeamDashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetch() {
-      if (!supabase) { setLoading(false); return; }
-      setLoading(true);
-      try {
-        const [clientsRes, deliverablesRes, campaignsRes] = await Promise.all([
-          supabase.from('clients').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID).eq('status', 'active'),
-          supabase.from('deliverables').select('id, status', { count: 'exact' }).eq('tenant_id', DEMO_TENANT_ID),
-          supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID).eq('status', 'live'),
-        ]);
+  const fetchSummary = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const [clientsRes, deliverablesRes, campaignsRes] = await Promise.all([
+        supabase.from('clients').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID).eq('status', 'active'),
+        supabase.from('deliverables').select('id, status', { count: 'exact' }).eq('tenant_id', DEMO_TENANT_ID),
+        supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('tenant_id', DEMO_TENANT_ID).eq('status', 'live'),
+      ]);
 
-        const deliverables = deliverablesRes.data || [];
-        const pending = deliverables.filter((d: Record<string, unknown>) => d.status === 'review').length;
-        const overdue = deliverables.filter((d: Record<string, unknown>) => d.status === 'pending').length;
+      // Count overloaded team members (current_load >= 85)
+      const { count: overloadedCount } = await supabase
+        .from('team_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', DEMO_TENANT_ID)
+        .gte('current_load', 85);
 
-        setData({
-          totalActiveClients: clientsRes.count || 0,
-          totalActiveDeliverables: deliverables.length,
-          pendingApprovals: pending,
-          runningCampaigns: campaignsRes.count || 0,
-          overdueTasks: overdue,
-          lowPackageClients: 0,
-        });
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Error');
-      } finally {
-        setLoading(false);
-      }
+      const deliverables = deliverablesRes.data || [];
+      const pending = deliverables.filter((d: Record<string, unknown>) => d.status === 'review').length;
+      const overdue = deliverables.filter((d: Record<string, unknown>) => d.status === 'pending').length;
+
+      setData({
+        totalActiveClients: clientsRes.count || 0,
+        totalActiveDeliverables: deliverables.length,
+        pendingApprovals: pending,
+        runningCampaigns: campaignsRes.count || 0,
+        overdueTasks: overdue,
+        lowPackageClients: overloadedCount || 0, // Reusing as overloaded members count
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setLoading(false);
     }
-    fetch();
   }, []);
 
-  return { data, loading, error };
+  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+
+  return { data, loading, error, refetch: fetchSummary };
+}
+
+// Real workload calculator hook
+export function useWorkload(teamMemberId: string | null) {
+  const [data, setData] = useState<WorkloadData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchWorkload = useCallback(async () => {
+    if (!teamMemberId || !supabase) { return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await calculateWorkload(teamMemberId);
+      setData(result);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error calculating workload');
+    } finally {
+      setLoading(false);
+    }
+  }, [teamMemberId]);
+
+  useEffect(() => { fetchWorkload(); }, [fetchWorkload]);
+
+  return { data, loading, error, refetch: fetchWorkload };
+}
+
+// Skill management hook
+export function useSkillManagement(teamMemberId: string | null) {
+  const [skills, setSkills] = useState<SkillRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSkills = useCallback(async () => {
+    if (!teamMemberId) { return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await getSkillsForMember(teamMemberId);
+      setSkills(result);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error loading skills');
+    } finally {
+      setLoading(false);
+    }
+  }, [teamMemberId]);
+
+  const addSkill = useCallback(async (skillName: string, skillLevel: number = 3) => {
+    if (!teamMemberId) return;
+    try {
+      const newSkill = await addSkillToMember(teamMemberId, skillName, skillLevel);
+      setSkills((prev) => [...prev, newSkill]);
+      return newSkill;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error adding skill');
+      throw e;
+    }
+  }, [teamMemberId]);
+
+  const updateLevel = useCallback(async (skillId: string, level: number) => {
+    try {
+      const updated = await updateSkillLevel(skillId, level);
+      setSkills((prev) => prev.map((s) => (s.id === skillId ? updated : s)));
+      return updated;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error updating skill');
+      throw e;
+    }
+  }, []);
+
+  const removeSkill = useCallback(async (skillId: string) => {
+    try {
+      await removeSkillFromMember(skillId);
+      setSkills((prev) => prev.filter((s) => s.id !== skillId));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error removing skill');
+      throw e;
+    }
+  }, []);
+
+  useEffect(() => { fetchSkills(); }, [fetchSkills]);
+
+  return { skills, loading, error, addSkill, updateLevel, removeSkill, refetch: fetchSkills };
 }

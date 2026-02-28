@@ -20,6 +20,7 @@ import { PackageComparison } from './PackageComparison';
 import { CategoryManager } from './CategoryManager';
 import { DeliverableTypeManager } from './DeliverableTypeManager';
 import { usePackages, useAllClientPackages, type PackageRow } from '@/hooks/usePackages';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 
 const tierIcons: Record<string, React.ReactNode> = {
   Starter: <Zap className="w-4 h-4" />,
@@ -89,6 +90,7 @@ export function PackageHub() {
             <div className="flex items-center gap-2">
               <Package className="w-5 h-5 text-[#00D9FF]" />
               <h2 className="font-display font-bold text-white text-sm">Packages</h2>
+              <DataSourceIndicator isRealData={packages.length > 0} size="xs" />
             </div>
             <button
               onClick={() => { setEditingPackage(null); setBuilderOpen(true); }}

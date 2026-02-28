@@ -11,16 +11,20 @@ import {
   TrendingUp,
   TrendingDown,
   AlertTriangle,
-  Pause
+  Pause,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 
 interface ClientListProps {
   clients: Client[];
   selectedClientId: string | null;
   onSelectClient: (clientId: string) => void;
+  bulkMode?: boolean;
+  bulkSelected?: Set<string>;
 }
 
-export function ClientList({ clients, selectedClientId, onSelectClient }: ClientListProps) {
+export function ClientList({ clients, selectedClientId, onSelectClient, bulkMode, bulkSelected }: ClientListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<Client['status'] | 'all'>('all');
 
@@ -151,12 +155,23 @@ export function ClientList({ clients, selectedClientId, onSelectClient }: Client
               key={client.id}
               onClick={() => onSelectClient(client.id)}
               className={`w-full text-left p-3 rounded-lg border transition-all duration-300 ${
-                selectedClientId === client.id
+                !bulkMode && selectedClientId === client.id
                   ? 'bg-[#00D9FF]/10 border-[#00D9FF]/50 shadow-lg shadow-[#00D9FF]/20'
+                  : bulkMode && bulkSelected?.has(client.id)
+                  ? 'bg-[#FF006E]/10 border-[#FF006E]/40'
                   : 'bg-[#1A1D2E]/60 border-white/10 hover:border-white/30 hover:bg-[#1A1D2E]/80'
               }`}
             >
               <div className="flex items-start justify-between mb-2">
+                {bulkMode && (
+                  <div className="mr-2 mt-0.5">
+                    {bulkSelected?.has(client.id) ? (
+                      <CheckSquare className="w-4 h-4 text-[#FF006E]" />
+                    ) : (
+                      <Square className="w-4 h-4 text-white/30" />
+                    )}
+                  </div>
+                )}
                 <div className="flex-1">
                   <div className="font-semibold text-white mb-1">{client.businessName}</div>
                   <div className="text-xs text-white/60">{client.category}</div>

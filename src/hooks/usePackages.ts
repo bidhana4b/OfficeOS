@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 
 // ===== Types =====
@@ -436,4 +436,213 @@ export function useAllClientPackages() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   return { data, loading, refetch: fetchAll };
+}
+
+// ===== Package Usage with Realtime (for WorkloadEngine recalculation) =====
+export interface PackageUsageRow {
+  id: string;
+  client_package_id: string;
+  deliverable_type: string;
+  used: number;
+  total: number;
+  allocated: number;
+  remaining: number;
+  usage_percent: number;
+  warning_threshold: number;
+  warning_triggered: boolean;
+  depleted_at: string | null;
+  label: string;
+  icon: string;
+  unit_label: string;
+  auto_deduction: boolean;
+  source: 'client_override' | 'package_default' | 'usage_only';
+}
+
+export function usePackageUsage(clientPackageId?: string) {
+  const [data, setData] = useState<PackageUsageRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const subRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const fetchUsage = useCallback(async () => {
+    if (!clientPackageId || !supabase) { setData([]); setLoading(false); return; }
+    setLoading(true);
+
+    // Try RPC with overrides first
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('get_package_usage_with_overrides', {
+      p_client_package_id: clientPackageId,
+    });
+
+    if (!rpcErr && rpcData) {
+      setData(rpcData as PackageUsageRow[]);
+    } else {
+      // Fallback: raw package_usage
+      const { data: rawData } = await supabase
+        .from('package_usage')
+        .select('*')
+        .eq('client_package_id', clientPackageId);
+      setData((rawData || []).map((r: Record<string, unknown>) => ({
+        ...r,
+        allocated: (r.allocated as number) || (r.total as number) || 0,
+        remaining: Math.max(((r.total as number) || 0) - ((r.used as number) || 0), 0),
+        usage_percent: (r.total as number) > 0 ? Math.round(((r.used as number) / (r.total as number)) * 100) : 0,
+        warning_threshold: 20,
+        warning_triggered: false,
+        depleted_at: null,
+        label: r.deliverable_type as string,
+        icon: 'package',
+        unit_label: 'units',
+        auto_deduction: true,
+        source: 'usage_only' as const,
+      })) as PackageUsageRow[]);
+    }
+    setLoading(false);
+  }, [clientPackageId]);
+
+  useEffect(() => { fetchUsage(); }, [fetchUsage]);
+
+  // Realtime subscription on package_usage changes → recalculate
+  useEffect(() => {
+    if (!clientPackageId || !supabase) return;
+
+    const channel = supabase
+      .channel(`package_usage_${clientPackageId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'package_usage',
+          filter: `client_package_id=eq.${clientPackageId}`,
+        },
+        () => {
+          fetchUsage();
+        }
+      )
+      .subscribe();
+
+    subRef.current = channel;
+
+    return () => {
+      if (subRef.current) {
+        supabase.removeChannel(subRef.current);
+        subRef.current = null;
+      }
+    };
+  }, [clientPackageId, fetchUsage]);
+
+  return { data, loading, refetch: fetchUsage };
+}
+
+// ===== Usage Deduction Events Hook =====
+export interface UsageDeductionEventRow {
+  id: string;
+  client_package_id: string;
+  deliverable_id: string | null;
+  deliverable_type: string;
+  deliverable_name: string;
+  quantity: number;
+  confirmed_by: string;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  created_at: string;
+}
+
+export function useUsageDeductionEvents(clientPackageId?: string) {
+  const [data, setData] = useState<UsageDeductionEventRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const subRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const fetchEvents = useCallback(async () => {
+    if (!clientPackageId || !supabase) { setData([]); setLoading(false); return; }
+    setLoading(true);
+    const { data: rows } = await supabase
+      .from('usage_deduction_events')
+      .select('*')
+      .eq('client_package_id', clientPackageId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    setData((rows || []) as UsageDeductionEventRow[]);
+    setLoading(false);
+  }, [clientPackageId]);
+
+  useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!clientPackageId || !supabase) return;
+
+    const channel = supabase
+      .channel(`usage_events_${clientPackageId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'usage_deduction_events',
+          filter: `client_package_id=eq.${clientPackageId}`,
+        },
+        () => {
+          fetchEvents();
+        }
+      )
+      .subscribe();
+
+    subRef.current = channel;
+
+    return () => {
+      if (subRef.current) {
+        supabase.removeChannel(subRef.current);
+        subRef.current = null;
+      }
+    };
+  }, [clientPackageId, fetchEvents]);
+
+  const cancelEvent = async (eventId: string) => {
+    if (!supabase) return;
+    await supabase.from('usage_deduction_events').update({ status: 'cancelled' }).eq('id', eventId);
+    await fetchEvents();
+  };
+
+  const confirmEvent = async (eventId: string) => {
+    if (!supabase) return;
+    await supabase.from('usage_deduction_events').update({ status: 'confirmed' }).eq('id', eventId);
+    await fetchEvents();
+  };
+
+  return { data, loading, refetch: fetchEvents, cancelEvent, confirmEvent };
+}
+
+// ===== Pre-Deduction Check Hook =====
+export function useUsageCheck() {
+  const [checking, setChecking] = useState(false);
+
+  const checkUsage = useCallback(async (
+    clientPackageId: string,
+    deliverableType: string,
+    quantity: number = 1
+  ) => {
+    if (!supabase) return { can_deduct: true, remaining: 0, warning_active: false, message: 'No connection' };
+    setChecking(true);
+    try {
+      const { data, error } = await supabase.rpc('check_usage_before_deduction', {
+        p_client_package_id: clientPackageId,
+        p_deliverable_type: deliverableType,
+        p_quantity: quantity,
+      });
+
+      if (error) return { can_deduct: true, remaining: 0, warning_active: false, message: error.message };
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        can_deduct: row?.can_deduct ?? true,
+        current_used: row?.current_used ?? 0,
+        current_total: row?.current_total ?? 0,
+        remaining: row?.remaining ?? 0,
+        warning_active: row?.warning_active ?? false,
+        message: row?.message ?? 'OK',
+      };
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  return { checkUsage, checking };
 }

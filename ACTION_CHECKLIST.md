@@ -2,11 +2,45 @@
 
 ## ✅ Completed (Automated)
 
-- [x] All database migrations executed (5 migrations)
+- [x] All database migrations executed (60+ migrations)
 - [x] Database schema verified (40+ tables)
 - [x] Code bug fixed (window.supabase)
 - [x] Mock fallback disabled (real errors active)
 - [x] Dev server restarted
+- [x] Phase 3: Real-time messaging integration ✅
+- [x] Phase 4: Enhanced client onboarding ✅
+- [x] Phase 4: Complete team member creation flow ✅
+
+---
+
+## 🔴 CRITICAL: Apply New Migration (1 minute)
+
+### Migration: 20240302_team_member_complete_flow.sql
+
+**Steps:**
+```
+1. Open Supabase Dashboard: https://supabase.com/dashboard
+2. Select your project
+3. Click "SQL Editor" in left sidebar
+4. Click "New query"
+5. Copy contents of: supabase/migrations/20240302_team_member_complete_flow.sql
+6. Paste into SQL Editor
+7. Click "Run" (or Ctrl+Enter)
+8. Verify: Should show "Success. No rows returned"
+```
+
+**What it creates:**
+- ✅ `create_complete_team_member()` function
+- ✅ `assign_team_member_to_client()` function
+- ✅ `team_members.client_assignments` column (JSONB)
+
+**Verification:**
+Run this query to test:
+```sql
+SELECT routine_name FROM information_schema.routines 
+WHERE routine_name IN ('create_complete_team_member', 'assign_team_member_to_client');
+```
+Should return 2 rows.
 
 ---
 

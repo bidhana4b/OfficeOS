@@ -21,14 +21,14 @@ export function calculateWorkload(assignment: PackageAssignment): PackageWorkloa
   const workloadBreakdown = assignment.deliverables.map((d) => ({
     category: d.label,
     deliverableType: d.type,
-    quantity: d.totalAllocated,
+    quantity: d.remaining > 0 ? d.remaining : d.totalAllocated,
     hoursPerUnit: hoursPerUnit[d.type] || 1,
-    totalHours: d.totalAllocated * (hoursPerUnit[d.type] || 1),
+    totalHours: (d.remaining > 0 ? d.remaining : d.totalAllocated) * (hoursPerUnit[d.type] || 1),
   }));
 
-  const totalUnits = assignment.deliverables.reduce((sum, d) => sum + d.totalAllocated, 0);
+  const totalUnits = workloadBreakdown.reduce((sum, b) => sum + b.quantity, 0);
   const totalHours = workloadBreakdown.reduce((sum, b) => sum + b.totalHours, 0);
-  const teamCapacity = assignment.assignedTeamMembers.length * 160;
+  const teamCapacity = Math.max(assignment.assignedTeamMembers.length * 160, 160);
 
   return {
     packageId: assignment.id,

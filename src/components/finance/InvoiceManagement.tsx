@@ -45,7 +45,10 @@ import {
   deleteInvoice,
   getClientListForSelect,
   subscribeToTable,
+  getInvoicesForExport,
 } from '@/lib/data-service';
+import { exportCSV, invoiceExportColumns } from '@/lib/export-utils';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 
 interface InvoiceItem {
   id?: string;
@@ -368,9 +371,12 @@ export default function InvoiceManagement() {
               </div>
               Invoice Management
             </h2>
-            <p className="font-mono text-xs text-white/30 mt-1.5 ml-[42px]">
-              Track, create, and manage all client invoices &amp; payments
-            </p>
+            <div className="flex items-center gap-2 mt-1.5 ml-[42px]">
+              <p className="font-mono text-xs text-white/30">
+                Track, create, and manage all client invoices &amp; payments
+              </p>
+              <DataSourceIndicator isRealData={invoices.length > 0} size="xs" />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -380,6 +386,23 @@ export default function InvoiceManagement() {
               className="border-white/[0.08] text-white/40 hover:bg-white/[0.04] hover:text-white/60 gap-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const data = await getInvoicesForExport();
+                  exportCSV(data, invoiceExportColumns, 'titan_invoices');
+                } catch (err) {
+                  console.error('Export failed:', err);
+                }
+              }}
+              className="border-white/[0.08] text-white/40 hover:bg-white/[0.04] hover:text-white/60 gap-1.5"
+              title="Export CSV"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              CSV
             </Button>
             <Button
               onClick={() => setShowCreateDialog(true)}

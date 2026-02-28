@@ -1,5 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import {
+  sendTypingIndicator,
+  clearTypingIndicator,
+  subscribeToTypingIndicators,
+  markMessageAsReadV2,
+  markChannelAsRead,
+  subscribeToReadReceipts,
+  validateChannelAccess,
+} from '@/lib/data-service';
 import type { Workspace, Channel, Message, MessageType } from '@/components/messaging/types';
 
 function formatRelativeTime(isoString: string): string {
@@ -245,5 +254,366 @@ export function useMessages(channelId?: string) {
   }, [channelId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Real-time subscription for new messages
+  useEffect(() => {
+    if (!channelId) return;
+
+    const messageSubscription = supabase
+      .channel(`messages:${channelId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `channel_id=eq.${channelId}`,
+        },
+        (payload) => {
+          console.log('✅ New message received (realtime):', payload.new);
+          // Refetch to get complete data with joins
+          fetchData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `channel_id=eq.${channelId}`,
+        },
+        (payload) => {
+          console.log('✅ Message updated (realtime):', payload.new);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      messageSubscription.unsubscribe();
+    };
+  }, [channelId, fetchData]);
+
   return { data, loading, error, refetch: fetchData };
+}
+
+// ============================================
+// TYPING INDICATORS HOOK (Realtime)
+// ============================================
+
+export function useTypingIndicators(channelId?: string, currentUserId?: string) {
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [typingUserNames, setTypingUserNames] = useState<string[]>([]);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Subscribe to typing indicator changes
+  useEffect(() => {
+    if (!channelId) {
+      setTypingUsers([]);
+      setTypingUserNames([]);
+      return;
+    }
+
+    const subscription = subscribeToTypingIndicators(channelId, (userIds) => {
+      // Filter out current user
+      const otherUsers = currentUserId
+        ? userIds.filter(id => id !== currentUserId)
+        : userIds;
+      setTypingUsers(otherUsers);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [channelId, currentUserId]);
+
+  // Resolve user names from typing user IDs
+  useEffect(() => {
+    if (typingUsers.length === 0) {
+      setTypingUserNames([]);
+      return;
+    }
+
+    const fetchNames = async () => {
+      try {
+        const { data } = await supabase
+          .from('workspace_members')
+          .select('user_profile_id, name')
+          .in('user_profile_id', typingUsers);
+
+        if (data) {
+          const nameMap = new Map(data.map(d => [d.user_profile_id, d.name]));
+          setTypingUserNames(typingUsers.map(id => nameMap.get(id) || 'Someone'));
+        }
+      } catch {
+        setTypingUserNames(typingUsers.map(() => 'Someone'));
+      }
+    };
+
+    fetchNames();
+  }, [typingUsers]);
+
+  // Send typing indicator
+  const startTyping = useCallback((workspaceId: string) => {
+    if (!channelId || !currentUserId) return;
+
+    // Clear any existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    sendTypingIndicator(channelId, currentUserId, workspaceId).catch(console.warn);
+
+    // Auto-clear after 5 seconds
+    typingTimeoutRef.current = setTimeout(() => {
+      clearTypingIndicator(channelId, currentUserId).catch(console.warn);
+    }, 5000);
+  }, [channelId, currentUserId]);
+
+  // Stop typing indicator
+  const stopTyping = useCallback(() => {
+    if (!channelId || !currentUserId) return;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    clearTypingIndicator(channelId, currentUserId).catch(console.warn);
+  }, [channelId, currentUserId]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  return { typingUsers, typingUserNames, startTyping, stopTyping };
+}
+
+// ============================================
+// READ RECEIPTS HOOK (Realtime)
+// ============================================
+
+export interface ReadReceiptInfo {
+  messageId: string;
+  readers: Array<{ userId: string; readAt: string }>;
+}
+
+export function useReadReceipts(channelId?: string, currentUserId?: string) {
+  const [receipts, setReceipts] = useState<Map<string, Array<{ userId: string; readAt: string }>>>(new Map());
+
+  // Mark channel as read when entering
+  useEffect(() => {
+    if (!channelId || !currentUserId) return;
+
+    markChannelAsRead(channelId, currentUserId).catch(console.warn);
+  }, [channelId, currentUserId]);
+
+  // Subscribe to new read receipts
+  useEffect(() => {
+    if (!channelId) return;
+
+    const unsubscribe = subscribeToReadReceipts(channelId, (receipt) => {
+      if (receipt.reader_profile_id === currentUserId) return;
+
+      setReceipts(prev => {
+        const next = new Map(prev);
+        const existing = next.get(receipt.message_id) || [];
+        if (!existing.some(r => r.userId === receipt.reader_profile_id)) {
+          next.set(receipt.message_id, [
+            ...existing,
+            { userId: receipt.reader_profile_id, readAt: receipt.read_at },
+          ]);
+        }
+        return next;
+      });
+    });
+
+    return unsubscribe;
+  }, [channelId, currentUserId]);
+
+  // Mark a specific message as read
+  const markAsRead = useCallback((messageId: string) => {
+    if (!channelId || !currentUserId) return;
+    markMessageAsReadV2(messageId, currentUserId, channelId).catch(console.warn);
+  }, [channelId, currentUserId]);
+
+  // Get reader count for a message
+  const getReaderCount = useCallback((messageId: string) => {
+    return receipts.get(messageId)?.length || 0;
+  }, [receipts]);
+
+  return { receipts, markAsRead, getReaderCount };
+}
+
+// ============================================
+// CHANNEL ACCESS CHECK HOOK
+// ============================================
+
+export function useChannelAccess(channelId?: string, userProfileId?: string) {
+  const [hasAccess, setHasAccess] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!channelId || !userProfileId) {
+      setHasAccess(true);
+      return;
+    }
+
+    const check = async () => {
+      setLoading(true);
+      try {
+        const result = await validateChannelAccess(channelId, userProfileId);
+        setHasAccess(result);
+      } catch {
+        setHasAccess(true); // graceful fallback
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    check();
+  }, [channelId, userProfileId]);
+
+  return { hasAccess, loading };
+}
+
+// ============================================
+// REALTIME CONNECTION STATUS HOOK
+// ============================================
+
+export type RealtimeConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
+
+export function useRealtimeConnection() {
+  const [status, setStatus] = useState<RealtimeConnectionStatus>('connecting');
+  const [lastConnectedAt, setLastConnectedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    // Create a test channel to monitor connection status
+    const testChannel = supabase.channel('connection-monitor');
+
+    testChannel
+      .on('system', {}, (payload) => {
+        console.log('📡 Realtime status:', payload);
+      })
+      .subscribe((status) => {
+        console.log('📡 Subscription status:', status);
+        
+        switch (status) {
+          case 'SUBSCRIBED':
+            setStatus('connected');
+            setLastConnectedAt(new Date());
+            break;
+          case 'CHANNEL_ERROR':
+          case 'TIMED_OUT':
+            setStatus('error');
+            break;
+          case 'CLOSED':
+            setStatus('disconnected');
+            break;
+          default:
+            setStatus('connecting');
+        }
+      });
+
+    return () => {
+      testChannel.unsubscribe();
+    };
+  }, []);
+
+  return { status, lastConnectedAt };
+}
+
+// ============================================
+// CHANNEL MEMBERS REALTIME HOOK
+// ============================================
+
+export interface ChannelMember {
+  id: string;
+  name: string;
+  avatar: string;
+  role: string;
+  status: 'online' | 'offline' | 'away';
+}
+
+export function useChannelMembers(channelId?: string) {
+  const [members, setMembers] = useState<ChannelMember[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchMembers = useCallback(async () => {
+    if (!channelId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('channel_members')
+        .select(`
+          user_id,
+          role,
+          user_profiles:user_id (
+            full_name,
+            avatar_url,
+            status
+          )
+        `)
+        .eq('channel_id', channelId);
+
+      if (error) throw error;
+
+      const mapped = (data || []).map((m: Record<string, unknown>) => {
+        const profile = m.user_profiles as Record<string, unknown> | null;
+        return {
+          id: m.user_id as string,
+          name: (profile?.full_name as string) || 'Unknown User',
+          avatar: (profile?.avatar_url as string) || '',
+          role: (m.role as string) || 'member',
+          status: ((profile?.status as string) || 'offline') as 'online' | 'offline' | 'away',
+        };
+      });
+
+      setMembers(mapped);
+    } catch (error) {
+      console.error('Error fetching channel members:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [channelId]);
+
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
+
+  // Real-time subscription for member changes
+  useEffect(() => {
+    if (!channelId) return;
+
+    const subscription = supabase
+      .channel(`channel-members:${channelId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'channel_members',
+          filter: `channel_id=eq.${channelId}`,
+        },
+        () => {
+          console.log('✅ Channel members updated (realtime)');
+          fetchMembers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [channelId, fetchMembers]);
+
+  return { members, loading, refetch: fetchMembers };
 }

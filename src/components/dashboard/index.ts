@@ -1,4 +1,5 @@
 export { default as Dashboard } from './Dashboard';
+export { default as AgencyCommandCenter } from './AgencyCommandCenter';
 export { default as SidebarNav } from './SidebarNav';
 export { default as TopCommandBar } from './TopCommandBar';
 export { default as HeroMetrics } from './HeroMetrics';

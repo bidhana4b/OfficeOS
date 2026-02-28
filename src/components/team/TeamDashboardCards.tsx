@@ -24,23 +24,23 @@ function buildSummaryCards(summary: TeamDashboardSummary) {
       value: summary.totalActiveClients,
       icon: Users,
       color: 'cyan' as const,
-      change: '+2 this week',
-      changeType: 'positive' as const,
+      change: summary.totalActiveClients > 0 ? `${summary.totalActiveClients} active` : 'No clients',
+      changeType: summary.totalActiveClients > 0 ? 'positive' as const : 'negative' as const,
     },
     {
       label: 'Active Deliverables',
       value: summary.totalActiveDeliverables,
       icon: Package,
       color: 'purple' as const,
-      change: '+12 this week',
-      changeType: 'positive' as const,
+      change: summary.totalActiveDeliverables > 0 ? `${summary.totalActiveDeliverables} tracked` : 'No deliverables',
+      changeType: summary.totalActiveDeliverables > 0 ? 'positive' as const : 'negative' as const,
     },
     {
       label: 'Pending Approvals',
       value: summary.pendingApprovals,
       icon: Clock,
       color: 'magenta' as const,
-      change: summary.pendingApprovals > 0 ? `${summary.pendingApprovals} overdue` : 'All clear',
+      change: summary.pendingApprovals > 0 ? `${summary.pendingApprovals} awaiting review` : 'All clear',
       changeType: summary.pendingApprovals > 0 ? 'negative' as const : 'positive' as const,
     },
     {
@@ -48,8 +48,8 @@ function buildSummaryCards(summary: TeamDashboardSummary) {
       value: summary.runningCampaigns,
       icon: Megaphone,
       color: 'lime' as const,
-      change: '+5 this week',
-      changeType: 'positive' as const,
+      change: summary.runningCampaigns > 0 ? `${summary.runningCampaigns} live` : 'No campaigns',
+      changeType: summary.runningCampaigns > 0 ? 'positive' as const : 'negative' as const,
     },
     {
       label: 'Overdue Tasks',
@@ -60,11 +60,11 @@ function buildSummaryCards(summary: TeamDashboardSummary) {
       changeType: summary.overdueTasks > 0 ? 'negative' as const : 'positive' as const,
     },
     {
-      label: 'Low Package Clients',
+      label: 'Overloaded Members',
       value: summary.lowPackageClients,
       icon: AlertOctagon,
       color: 'magenta' as const,
-      change: summary.lowPackageClients > 0 ? 'Needs attention' : 'All healthy',
+      change: summary.lowPackageClients > 0 ? 'Redistribute tasks' : 'Balanced',
       changeType: summary.lowPackageClients > 0 ? 'negative' as const : 'positive' as const,
     },
   ];
@@ -98,7 +98,7 @@ const colorConfig = {
 };
 
 export default function TeamDashboardCards({ summary, loading }: TeamDashboardCardsProps) {
-  const data = summary || { totalMembers: 0, activeProjects: 0, avgLoad: 0, departments: 0, pendingTasks: 0, completionRate: 0 };
+  const data = summary || { totalActiveClients: 0, totalActiveDeliverables: 0, pendingApprovals: 0, runningCampaigns: 0, overdueTasks: 0, lowPackageClients: 0 };
   const summaryCards = buildSummaryCards(data);
 
   return (

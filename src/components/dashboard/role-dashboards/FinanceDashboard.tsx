@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   DollarSign,
-  TrendingUp,
-  TrendingDown,
   Receipt,
   Wallet,
   CreditCard,
@@ -21,169 +19,38 @@ import {
   Megaphone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-
-interface InvoiceSummary {
-  total: number;
-  paid: number;
-  pending: number;
-  overdue: number;
-  paid_amount: number;
-  pending_amount: number;
-  overdue_amount: number;
-}
-
-interface WalletOverview {
-  total_balance: number;
-  total_credits: number;
-  total_debits: number;
-  wallet_count: number;
-}
-
-interface RecentTransaction {
-  id: string;
-  type: string;
-  amount: number;
-  description: string;
-  created_at: string;
-  client_name?: string;
-}
-
-interface RecentInvoice {
-  id: string;
-  invoice_number: string;
-  amount: number;
-  status: string;
-  client_name: string;
-  due_date: string | null;
-  created_at: string;
-}
-
-interface CampaignSpend {
-  platform: string;
-  total_budget: number;
-  total_spent: number;
-  count: number;
-}
+import { useFinanceDashboard } from '@/hooks/useDashboard';
 
 export default function FinanceDashboard() {
   const { user } = useAuth();
-  const [invoiceSummary, setInvoiceSummary] = useState<InvoiceSummary>({
-    total: 0, paid: 0, pending: 0, overdue: 0,
-    paid_amount: 0, pending_amount: 0, overdue_amount: 0,
-  });
-  const [walletOverview, setWalletOverview] = useState<WalletOverview>({
-    total_balance: 0, total_credits: 0, total_debits: 0, wallet_count: 0,
-  });
-  const [recentTransactions, setRecentTransactions] = useState<RecentTransaction[]>([]);
-  const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
-  const [campaignSpends, setCampaignSpends] = useState<CampaignSpend[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { invoices, walletOverview, recentTransactions, campaignSpends, loading, error, refetch } = useFinanceDashboard();
   const [invTab, setInvTab] = useState<'all' | 'paid' | 'pending' | 'overdue'>('all');
 
-  const fetchData = useCallback(async () => {
-    if (!supabase) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      // Fetch all invoices for summary
-      const { data: invoices } = await supabase
-        .from('invoices')
-        .select('id, status, amount, due_date, invoice_number, created_at, clients(business_name)')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .order('created_at', { ascending: false });
+  const invoiceSummary = useMemo(() => {
+    const paid = invoices.filter((i: any) => i.status === 'paid');
+    const pending = invoices.filter((i: any) => i.status === 'sent' || i.status === 'draft');
+    const overdue = invoices.filter((i: any) => i.status === 'overdue');
+    return {
+      total: invoices.length,
+      paid: paid.length,
+      pending: pending.length,
+      overdue: overdue.length,
+      paid_amount: paid.reduce((s: number, i: any) => s + Number(i.amount || 0), 0),
+      pending_amount: pending.reduce((s: number, i: any) => s + Number(i.amount || 0), 0),
+      overdue_amount: overdue.reduce((s: number, i: any) => s + Number(i.amount || 0), 0),
+    };
+  }, [invoices]);
 
-      if (invoices) {
-        const paid = invoices.filter((i: any) => i.status === 'paid');
-        const pending = invoices.filter((i: any) => i.status === 'sent' || i.status === 'draft');
-        const overdue = invoices.filter((i: any) => i.status === 'overdue');
-
-        setInvoiceSummary({
-          total: invoices.length,
-          paid: paid.length,
-          pending: pending.length,
-          overdue: overdue.length,
-          paid_amount: paid.reduce((s: number, i: any) => s + Number(i.amount || 0), 0),
-          pending_amount: pending.reduce((s: number, i: any) => s + Number(i.amount || 0), 0),
-          overdue_amount: overdue.reduce((s: number, i: any) => s + Number(i.amount || 0), 0),
-        });
-
-        setRecentInvoices(invoices.slice(0, 10).map((i: any) => ({
-          id: i.id,
-          invoice_number: i.invoice_number,
-          amount: i.amount,
-          status: i.status,
-          client_name: i.clients?.business_name || 'Unknown',
-          due_date: i.due_date,
-          created_at: i.created_at,
-        })));
-      }
-
-      // Fetch wallets
-      const { data: wallets } = await supabase
-        .from('client_wallets')
-        .select('balance');
-
-      // Fetch all transactions to compute credits/debits
-      const { data: allTxns } = await supabase
-        .from('wallet_transactions')
-        .select('type, amount');
-
-      const totalCredits = (allTxns || []).filter((t: any) => t.type === 'credit').reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
-      const totalDebits = (allTxns || []).filter((t: any) => t.type === 'debit').reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
-
-      if (wallets) {
-        setWalletOverview({
-          total_balance: wallets.reduce((s: number, w: any) => s + Number(w.balance || 0), 0),
-          total_credits: totalCredits,
-          total_debits: totalDebits,
-          wallet_count: wallets.length,
-        });
-      }
-
-      // Fetch recent transactions
-      const { data: txns } = await supabase
-        .from('wallet_transactions')
-        .select('*, client_wallets(clients(business_name))')
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (txns) {
-        setRecentTransactions(txns.map((t: any) => ({
-          id: t.id,
-          type: t.type,
-          amount: t.amount,
-          description: t.description || '',
-          created_at: t.created_at,
-          client_name: t.client_wallets?.clients?.business_name || 'Unknown',
-        })));
-      }
-
-      // Fetch campaign spend breakdown
-      const { data: campData } = await supabase
-        .from('campaigns')
-        .select('platform, budget, spent')
-        .eq('tenant_id', DEMO_TENANT_ID);
-
-      if (campData) {
-        const platformMap: Record<string, CampaignSpend> = {};
-        campData.forEach((c: any) => {
-          const p = c.platform || 'other';
-          if (!platformMap[p]) platformMap[p] = { platform: p, total_budget: 0, total_spent: 0, count: 0 };
-          platformMap[p].total_budget += Number(c.budget || 0);
-          platformMap[p].total_spent += Number(c.spent || 0);
-          platformMap[p].count++;
-        });
-        setCampaignSpends(Object.values(platformMap).sort((a, b) => b.total_spent - a.total_spent));
-      }
-    } catch (e) {
-      console.error('FinanceDashboard fetch error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const recentInvoices = invoices.slice(0, 10).map((i: any) => ({
+    id: i.id,
+    invoice_number: i.invoice_number,
+    amount: i.amount,
+    status: i.status,
+    client_name: i.client_name || 'Unknown',
+    due_date: i.due_date,
+    created_at: i.created_at,
+  }));
 
   const totalRevenue = invoiceSummary.paid_amount;
   const pendingRevenue = invoiceSummary.pending_amount + invoiceSummary.overdue_amount;
@@ -225,7 +92,26 @@ export default function FinanceDashboard() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin" />
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="font-mono-data text-[11px] text-white/30">Loading financial data…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-10 h-10 text-titan-magenta mx-auto mb-3 opacity-60" />
+          <h2 className="font-display font-bold text-lg text-white mb-2">Failed to Load Finance Dashboard</h2>
+          <p className="font-mono-data text-xs text-white/40 mb-4">{error}</p>
+          <button onClick={refetch} className="flex items-center gap-2 mx-auto px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30 hover:bg-yellow-500/30 transition-colors">
+            <RefreshCw className="w-4 h-4 text-yellow-400" />
+            <span className="font-mono text-xs text-yellow-400">Retry</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -249,7 +135,7 @@ export default function FinanceDashboard() {
             </div>
           </div>
           <button
-            onClick={fetchData}
+            onClick={refetch}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
           >
             <RefreshCw className="w-3.5 h-3.5 text-white/40" />

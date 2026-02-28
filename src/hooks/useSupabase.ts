@@ -1,6 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+
+/**
+ * Convenience hook that provides both supabase client and current user.
+ * Used by components that need direct access to supabase + user context.
+ */
+export function useSupabase() {
+  const { user } = useAuth();
+  return {
+    supabase,
+    user: user ? { ...user, tenant_id: user.tenant_id || DEMO_TENANT_ID } : null,
+    tenantId: user?.tenant_id || DEMO_TENANT_ID,
+  };
+}
 
 export interface UseSupabaseQueryOptions<T> {
   table: string;

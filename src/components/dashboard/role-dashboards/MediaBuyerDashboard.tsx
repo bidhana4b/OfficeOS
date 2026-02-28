@@ -1,10 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Megaphone,
   DollarSign,
-  TrendingUp,
-  TrendingDown,
   BarChart3,
   Target,
   Wallet,
@@ -17,78 +15,16 @@ import {
   ArrowUpRight,
   Zap,
   Eye,
-  MousePointerClick,
   RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-
-interface Campaign {
-  id: string;
-  name: string;
-  platform: string;
-  status: string;
-  budget: number;
-  spent: number;
-  goal: string;
-  client_name?: string;
-  start_date: string | null;
-  end_date: string | null;
-}
-
-interface WalletInfo {
-  id: string;
-  balance: number;
-  client_name: string;
-}
+import { useMediaBuyerDashboard } from '@/hooks/useDashboard';
 
 export default function MediaBuyerDashboard() {
   const { user } = useAuth();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [wallets, setWallets] = useState<WalletInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { campaigns, wallets, loading, error, refetch } = useMediaBuyerDashboard();
   const [campFilter, setCampFilter] = useState<'all' | 'active' | 'paused' | 'completed'>('all');
-
-  const fetchData = useCallback(async () => {
-    if (!supabase) { setLoading(false); return; }
-    setLoading(true);
-    try {
-      // Fetch campaigns
-      const { data: campData } = await supabase
-        .from('campaigns')
-        .select('*, clients(business_name)')
-        .eq('tenant_id', DEMO_TENANT_ID)
-        .order('created_at', { ascending: false })
-        .limit(30);
-
-      if (campData) {
-        setCampaigns(campData.map((c: any) => ({
-          ...c,
-          client_name: c.clients?.business_name || 'Unknown',
-        })));
-      }
-
-      // Fetch wallets with client names
-      const { data: walletData } = await supabase
-        .from('client_wallets')
-        .select('id, balance, clients(business_name)');
-
-      if (walletData) {
-        setWallets(walletData.map((w: any) => ({
-          id: w.id,
-          balance: Number(w.balance || 0),
-          client_name: w.clients?.business_name || 'Unknown',
-        })));
-      }
-    } catch (e) {
-      console.error('MediaBuyerDashboard fetch error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   const activeCampaigns = campaigns.filter(c => c.status === 'active');
   const pausedCampaigns = campaigns.filter(c => c.status === 'paused');
@@ -140,7 +76,26 @@ export default function MediaBuyerDashboard() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-titan-magenta/30 border-t-titan-magenta rounded-full animate-spin" />
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-titan-magenta/30 border-t-titan-magenta rounded-full animate-spin mx-auto mb-3" />
+          <p className="font-mono-data text-[11px] text-white/30">Loading campaigns…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-10 h-10 text-titan-magenta mx-auto mb-3 opacity-60" />
+          <h2 className="font-display font-bold text-lg text-white mb-2">Failed to Load Dashboard</h2>
+          <p className="font-mono-data text-xs text-white/40 mb-4">{error}</p>
+          <button onClick={refetch} className="flex items-center gap-2 mx-auto px-4 py-2 rounded-lg bg-titan-magenta/20 border border-titan-magenta/30 hover:bg-titan-magenta/30 transition-colors">
+            <RefreshCw className="w-4 h-4 text-titan-magenta" />
+            <span className="font-mono text-xs text-titan-magenta">Retry</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -164,7 +119,7 @@ export default function MediaBuyerDashboard() {
             </div>
           </div>
           <button
-            onClick={fetchData}
+            onClick={refetch}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
           >
             <RefreshCw className="w-3.5 h-3.5 text-white/40" />

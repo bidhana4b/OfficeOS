@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Brain, AlertTriangle, TrendingUp, Lightbulb, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AIInsight } from './types';
@@ -39,7 +39,7 @@ export default function AIInsightsWidget({ data, loading, dashboardData }: AIIns
   const [isAILoading, setIsAILoading] = useState(false);
   const [isAIPowered, setIsAIPowered] = useState(false);
 
-  const aiInsightsData = aiInsights.length > 0 ? aiInsights : (data && data.length > 0 ? data : []);
+  const aiInsightsData = aiInsights.length > 0 ? aiInsights : (data || []);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,48 +109,58 @@ export default function AIInsightsWidget({ data, loading, dashboardData }: AIIns
         </div>
 
         <div className="space-y-3">
-          {aiInsightsData.map((insight) => {
-            const config = typeConfig[insight.type];
-            const Icon = config.icon;
-            
-            return (
-              <div
-                key={insight.id}
-                className={cn(
-                  'relative p-4 rounded-lg border backdrop-blur-sm transition-all duration-300 cursor-pointer group',
-                  'bg-gradient-to-r',
-                  config.gradient,
-                  config.borderColor,
-                  'hover:bg-white/[0.03]'
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <div className={cn('flex items-center justify-center w-7 h-7 rounded-md shrink-0', config.bg)}>
-                    <Icon className={cn('w-3.5 h-3.5', config.color)} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-mono-data text-xs text-white/80 font-medium">{insight.title}</h4>
-                      <span className={cn('font-mono-data text-[9px] px-1.5 py-0.5 rounded-full', config.bg, config.color)}>
-                        {insight.confidence}% confidence
-                      </span>
+          {aiInsightsData.length === 0 && !isAILoading && !loading ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Brain className="w-8 h-8 text-white/10 mb-3" />
+              <p className="font-mono-data text-[11px] text-white/30">No AI insights available</p>
+              <p className="font-mono-data text-[10px] text-white/15 mt-1">Insights will appear as data is collected</p>
+            </div>
+          ) : (
+            aiInsightsData.map((insight) => {
+              const config = typeConfig[insight.type];
+              const Icon = config.icon;
+
+              return (
+                <div
+                  key={insight.id}
+                  className={cn(
+                    'relative p-4 rounded-lg border backdrop-blur-sm transition-all duration-300 cursor-pointer group',
+                    'bg-gradient-to-r',
+                    config.gradient,
+                    config.borderColor,
+                    'hover:bg-white/[0.03]'
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={cn('flex items-center justify-center w-7 h-7 rounded-md shrink-0', config.bg)}>
+                      <Icon className={cn('w-3.5 h-3.5', config.color)} />
                     </div>
-                    <p className="font-mono-data text-[10px] text-white/35 leading-relaxed line-clamp-2">
-                      {insight.description}
-                    </p>
-                    <button className={cn(
-                      'mt-2.5 flex items-center gap-1.5 font-accent font-bold text-[10px] tracking-wider uppercase transition-all duration-200',
-                      config.color,
-                      'opacity-70 group-hover:opacity-100'
-                    )}>
-                      {insight.action}
-                      <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-mono-data text-xs text-white/80 font-medium">{insight.title}</h4>
+                        <span className={cn('font-mono-data text-[9px] px-1.5 py-0.5 rounded-full', config.bg, config.color)}>
+                          {insight.confidence}% confidence
+                        </span>
+                      </div>
+                      <p className="font-mono-data text-[10px] text-white/35 leading-relaxed line-clamp-2">
+                        {insight.description}
+                      </p>
+                      <button
+                        className={cn(
+                          'mt-2.5 flex items-center gap-1.5 font-accent font-bold text-[10px] tracking-wider uppercase transition-all duration-200',
+                          config.color,
+                          'opacity-70 group-hover:opacity-100'
+                        )}
+                      >
+                        {insight.action}
+                        <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
     </div>

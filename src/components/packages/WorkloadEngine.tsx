@@ -1,14 +1,38 @@
 import { motion } from 'framer-motion';
-import { Gauge, Clock, Users, Zap, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Gauge, Clock, Users, Zap, TrendingUp, AlertTriangle, RefreshCw } from 'lucide-react';
 import { calculateWorkload } from './utils';
 import type { PackageAssignment, PackageWorkload } from './types';
 
 interface WorkloadEngineProps {
   assignments?: PackageAssignment[];
+  /** Optional: real-time usage data per deliverable_type to override static allocations */
+  usageOverrides?: Record<string, { used: number; total: number; remaining: number }>;
+  /** Callback when usage changes detected and recalculation needed */
+  onRecalculate?: () => void;
+  lastUpdated?: string;
 }
 
-export function WorkloadEngine({ assignments }: WorkloadEngineProps) {
-  const activeAssignments = assignments && assignments.length > 0 ? assignments : [];
+export function WorkloadEngine({ assignments, usageOverrides, onRecalculate, lastUpdated }: WorkloadEngineProps) {
+  // Apply usage overrides to assignments if available
+  const activeAssignments = (assignments && assignments.length > 0 ? assignments : []).map((a) => {
+    if (!usageOverrides) return a;
+    return {
+      ...a,
+      deliverables: a.deliverables.map((d) => {
+        const override = usageOverrides[d.type];
+        if (override) {
+          return {
+            ...d,
+            totalAllocated: override.total,
+            used: override.used,
+            remaining: override.remaining,
+          };
+        }
+        return d;
+      }),
+    };
+  });
+
   const workloads: PackageWorkload[] = activeAssignments.map(calculateWorkload);
   const totalHours = workloads.reduce((s, w) => s + w.totalHoursRequired, 0);
   const totalUnits = workloads.reduce((s, w) => s + w.totalCreativeUnits, 0);
@@ -22,9 +46,23 @@ export function WorkloadEngine({ assignments }: WorkloadEngineProps) {
           <h3 className="font-display font-bold text-white text-base">Internal Workload Engine</h3>
           <p className="font-mono text-[11px] text-white/40">Auto-calculated from all active packages</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-          <Gauge className="w-3.5 h-3.5 text-[#00D9FF]" />
-          <span className="font-mono text-[10px] text-white/40">Real-time Calculation</span>
+        <div className="flex items-center gap-2">
+          {onRecalculate && (
+            <button
+              onClick={onRecalculate}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#00D9FF]/10 text-[#00D9FF] border border-[#00D9FF]/20 hover:bg-[#00D9FF]/20 font-mono text-[10px] transition-all"
+              title="Recalculate workload"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Recalculate
+            </button>
+          )}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+            <Gauge className="w-3.5 h-3.5 text-[#00D9FF]" />
+            <span className="font-mono text-[10px] text-white/40">
+              {lastUpdated ? `Updated ${lastUpdated}` : 'Real-time Calculation'}
+            </span>
+          </div>
         </div>
       </div>
 

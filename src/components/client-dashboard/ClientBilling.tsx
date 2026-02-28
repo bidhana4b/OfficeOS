@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
 import { supabase, DEMO_TENANT_ID } from '@/lib/supabase';
-import { creditWallet } from '@/lib/data-service';
+import { creditWallet, getAutoPaymentSettings, saveAutoPaymentSettings } from '@/lib/data-service';
 import {
   CreditCard,
   Download,
@@ -18,6 +18,9 @@ import {
   FileText,
   X,
   Loader2,
+  RefreshCw,
+  Zap,
+  Save,
 } from 'lucide-react';
 
 type InvoiceStatus = 'paid' | 'sent' | 'overdue' | 'draft';
@@ -51,6 +54,18 @@ export default function ClientBilling() {
   const [addingFund, setAddingFund] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Auto-payment state
+  const [showAutoPayment, setShowAutoPayment] = useState(false);
+  const [autoPayEnabled, setAutoPayEnabled] = useState(false);
+  const [autoPayMethod, setAutoPayMethod] = useState('wallet');
+  const [autoPayInvoices, setAutoPayInvoices] = useState(true);
+  const [autoRenew, setAutoRenew] = useState(true);
+  const [autoTopup, setAutoTopup] = useState(false);
+  const [autoTopupAmount, setAutoTopupAmount] = useState('5000');
+  const [autoTopupThreshold, setAutoTopupThreshold] = useState('1000');
+  const [autoPaySaving, setAutoPaySaving] = useState(false);
+  const [autoPaySaved, setAutoPaySaved] = useState(false);
+
   const fetchBillingData = useCallback(async () => {
     try {
       const clientId = user?.client_id;
@@ -82,6 +97,22 @@ export default function ClientBilling() {
           description: (r.notes as string) || `Invoice ${r.invoice_number}`,
         }));
         setInvoices(mapped);
+      }
+
+      // Fetch auto-payment settings
+      try {
+        const apData = await getAutoPaymentSettings(clientId);
+        if (apData) {
+          setAutoPayEnabled(apData.enabled);
+          setAutoPayMethod(apData.payment_method || 'wallet');
+          setAutoPayInvoices(apData.auto_pay_invoices ?? true);
+          setAutoRenew(apData.auto_renew_package ?? true);
+          setAutoTopup(apData.auto_topup_enabled ?? false);
+          setAutoTopupAmount(String(apData.auto_topup_amount || 5000));
+          setAutoTopupThreshold(String(apData.auto_topup_threshold || 1000));
+        }
+      } catch (_e) {
+        // No settings yet
       }
     } catch (e) {
       console.error('Failed to fetch billing data:', e);
@@ -148,6 +179,29 @@ export default function ClientBilling() {
     .filter((inv) => inv.status === 'paid')
     .reduce((sum, inv) => sum + inv.amount, 0);
 
+  const handleSaveAutoPay = async () => {
+    const clientId = user?.client_id;
+    if (!clientId) return;
+    setAutoPaySaving(true);
+    try {
+      await saveAutoPaymentSettings(clientId, {
+        enabled: autoPayEnabled,
+        payment_method: autoPayMethod,
+        auto_pay_invoices: autoPayInvoices,
+        auto_renew_package: autoRenew,
+        auto_topup_enabled: autoTopup,
+        auto_topup_amount: Number(autoTopupAmount) || 0,
+        auto_topup_threshold: Number(autoTopupThreshold) || 0,
+      });
+      setAutoPaySaved(true);
+      setTimeout(() => setAutoPaySaved(false), 3000);
+    } catch (e) {
+      console.error('Failed to save auto-payment:', e);
+    } finally {
+      setAutoPaySaving(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -207,6 +261,151 @@ export default function ClientBilling() {
               </div>
             </div>
           </div>
+        </motion.div>
+
+        {/* Auto Payment Setup */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="glass-card p-4 space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-titan-amber" />
+              <h3 className="font-display font-bold text-sm text-white">Auto Payment</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {autoPaySaved && (
+                <span className="font-mono text-[9px] text-titan-lime">✓ Saved</span>
+              )}
+              <button
+                onClick={() => setShowAutoPayment(!showAutoPayment)}
+                className="font-mono text-[10px] text-titan-cyan active:scale-95 transition-transform"
+              >
+                {showAutoPayment ? 'Hide' : 'Setup'}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-mono text-[10px] text-white/40">Auto-pay Status</p>
+              <p className={`font-mono text-xs font-bold ${autoPayEnabled ? 'text-titan-lime' : 'text-white/30'}`}>
+                {autoPayEnabled ? 'Active' : 'Disabled'}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !autoPayEnabled;
+                setAutoPayEnabled(next);
+                if (!next) setShowAutoPayment(false);
+              }}
+              className="relative transition-all duration-200"
+              style={{ width: 40, height: 22 }}
+            >
+              <div className={`absolute inset-0 rounded-full transition-all duration-200 ${autoPayEnabled ? 'bg-titan-lime/30' : 'bg-white/10'}`} />
+              <div className={`absolute top-0.5 w-[18px] h-[18px] rounded-full transition-all duration-200 ${autoPayEnabled ? 'left-[20px] bg-titan-lime' : 'left-0.5 bg-white/30'}`} />
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showAutoPayment && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-3 overflow-hidden"
+              >
+                {/* Payment Method */}
+                <div>
+                  <label className="font-mono text-[10px] text-white/40 block mb-1.5">Payment Method</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'wallet', label: 'Wallet' },
+                      { id: 'bkash', label: 'bKash' },
+                      { id: 'nagad', label: 'Nagad' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setAutoPayMethod(m.id)}
+                        className="py-2 rounded-lg border font-mono text-[10px] transition-all"
+                        style={{
+                          background: autoPayMethod === m.id ? 'rgba(0,217,255,0.1)' : 'transparent',
+                          borderColor: autoPayMethod === m.id ? 'rgba(0,217,255,0.3)' : 'rgba(255,255,255,0.06)',
+                          color: autoPayMethod === m.id ? '#00D9FF' : 'rgba(255,255,255,0.3)',
+                        }}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Auto-pay toggles */}
+                {[
+                  { key: 'invoices', label: 'Auto-pay Invoices', desc: 'Pay invoices when due', value: autoPayInvoices, setter: setAutoPayInvoices },
+                  { key: 'renew', label: 'Auto-renew Package', desc: 'Renew package on expiry', value: autoRenew, setter: setAutoRenew },
+                  { key: 'topup', label: 'Auto Top-up Wallet', desc: 'Add funds when balance is low', value: autoTopup, setter: setAutoTopup },
+                ].map((item) => (
+                  <div key={item.key} className="flex items-center justify-between py-1.5">
+                    <div>
+                      <p className="font-display font-semibold text-xs text-white">{item.label}</p>
+                      <p className="font-mono text-[9px] text-white/25">{item.desc}</p>
+                    </div>
+                    <button
+                      onClick={() => item.setter(!item.value)}
+                      className="relative transition-all duration-200"
+                      style={{ width: 36, height: 20 }}
+                    >
+                      <div className={`absolute inset-0 rounded-full transition-all duration-200 ${item.value ? 'bg-titan-cyan/30' : 'bg-white/10'}`} />
+                      <div className={`absolute top-0.5 w-[16px] h-[16px] rounded-full transition-all duration-200 ${item.value ? 'left-[18px] bg-titan-cyan' : 'left-0.5 bg-white/30'}`} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Auto top-up amount */}
+                {autoTopup && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-2"
+                  >
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="font-mono text-[9px] text-white/30 block mb-1">Top-up Amount</label>
+                        <input
+                          type="number"
+                          value={autoTopupAmount}
+                          onChange={(e) => setAutoTopupAmount(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 font-mono text-xs text-white focus:border-titan-cyan/50 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-mono text-[9px] text-white/30 block mb-1">When Below</label>
+                        <input
+                          type="number"
+                          value={autoTopupThreshold}
+                          onChange={(e) => setAutoTopupThreshold(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 font-mono text-xs text-white focus:border-titan-cyan/50 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                <button
+                  onClick={handleSaveAutoPay}
+                  disabled={autoPaySaving}
+                  className="w-full py-2.5 rounded-xl bg-titan-amber/15 border border-titan-amber/30 font-display font-bold text-xs text-titan-amber active:scale-[0.97] transition-transform disabled:opacity-30 flex items-center justify-center gap-2"
+                >
+                  {autoPaySaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save Auto Payment
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
 
         {/* Invoice List */}

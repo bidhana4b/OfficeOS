@@ -83,7 +83,7 @@ function CircularProgress({ percent, color, size = 52, strokeWidth = 4 }: { perc
   );
 }
 
-export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
+export default function ClientHome({ onRefresh, onQuickAction }: { onRefresh: () => void; onQuickAction?: (action: string) => void }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -101,7 +101,50 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
       const clientId = user?.client_id;
       if (!clientId) { setLoading(false); return; }
 
-      const [clientRes, walletRes, pkgRes, perfRes, campaignCountRes] = await Promise.all([
+      // Try using the RPC for a single optimized call
+      const { data: portalData, error: rpcError } = await supabase.rpc('get_client_portal_data', {
+        p_client_id: clientId,
+      });
+
+      if (!rpcError && portalData && !portalData.error) {
+        const client = portalData.client;
+        const wallet = portalData.wallet;
+        const pkg = portalData.package;
+        const usageArr = portalData.usage || [];
+        const stats = portalData.stats || {};
+
+        const usage: PackageUsageItem[] = usageArr.map((u: any) => ({
+          type: u.deliverable_type,
+          label: u.label || u.deliverable_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          icon: u.icon || u.deliverable_type,
+          used: u.used || 0,
+          total: u.total || 0,
+        }));
+
+        const renewalDate = pkg?.renewal_date || '';
+        const daysLeft = renewalDate
+          ? Math.max(0, Math.ceil((new Date(renewalDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+          : 0;
+
+        setClientData({
+          businessName: client?.business_name || user?.display_name || 'Your Business',
+          packageName: pkg?.package_name || '',
+          renewalDate,
+          daysLeft,
+          walletBalance: wallet?.balance || 0,
+          usage,
+          stats: {
+            postsPublished: stats.posts_published || 0,
+            activeCampaigns: stats.active_campaigns || 0,
+            adSpend: stats.ad_spend || 0,
+            leadsGenerated: stats.leads_generated || 0,
+          },
+        });
+        return;
+      }
+
+      // Fallback: individual queries if RPC not available
+      const [clientRes, walletRes, pkgRes] = await Promise.allSettled([
         supabase.from('clients').select('*').eq('id', clientId).single(),
         supabase.from('client_wallets').select('*').eq('client_id', clientId).single(),
         supabase
@@ -110,18 +153,20 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
           .eq('client_id', clientId)
           .eq('status', 'active')
           .single(),
-        supabase.from('client_performance').select('*').eq('client_id', clientId).limit(1).single(),
-        supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('client_id', clientId).in('status', ['active', 'live']),
       ]);
 
+      const client = clientRes.status === 'fulfilled' ? clientRes.value.data : null;
+      const wallet = walletRes.status === 'fulfilled' ? walletRes.value.data : null;
+      const pkg = pkgRes.status === 'fulfilled' ? pkgRes.value.data : null;
+
       let usage: PackageUsageItem[] = [];
-      if (pkgRes.data) {
+      if (pkg) {
         const usageRes = await supabase
           .from('package_usage')
           .select('*')
-          .eq('client_package_id', pkgRes.data.id);
+          .eq('client_package_id', pkg.id);
 
-        if (usageRes.data) {
+        if (usageRes.data && usageRes.data.length > 0) {
           usage = usageRes.data.map((u: any) => ({
             type: u.deliverable_type,
             label: u.deliverable_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
@@ -132,25 +177,46 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
         }
       }
 
-      const renewalDate = pkgRes.data?.renewal_date || '2025-01-31';
-      const daysLeft = Math.max(0, Math.ceil((new Date(renewalDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+      // Get real stats
+      const [campaignCountRes, deliveredCountRes] = await Promise.allSettled([
+        supabase.from('campaigns').select('id', { count: 'exact', head: true }).eq('client_id', clientId).in('status', ['active', 'live']),
+        supabase.from('deliverable_posts').select('id', { count: 'exact', head: true }).eq('client_id', clientId).in('status', ['approved', 'delivered']),
+      ]);
+
+      const campaignCount = campaignCountRes.status === 'fulfilled' ? campaignCountRes.value.count : 0;
+      const deliveredCount = deliveredCountRes.status === 'fulfilled' ? deliveredCountRes.value.count : 0;
+
+      const renewalDate = pkg?.renewal_date || '';
+      const daysLeft = renewalDate
+        ? Math.max(0, Math.ceil((new Date(renewalDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+        : 0;
 
       setClientData({
-        businessName: clientRes.data?.business_name || 'Your Business',
-        packageName: (pkgRes.data?.package as any)?.name || 'Standard Package',
+        businessName: client?.business_name || user?.display_name || 'Your Business',
+        packageName: (pkg?.package as any)?.name || '',
         renewalDate,
         daysLeft,
-        walletBalance: walletRes.data?.balance || 0,
+        walletBalance: wallet?.balance || 0,
         usage,
         stats: {
-          postsPublished: perfRes.data?.posts_published || 0,
-          activeCampaigns: campaignCountRes.count || 0,
-          adSpend: perfRes.data?.ad_spend_this_month || 0,
-          leadsGenerated: perfRes.data?.leads_generated || 0,
+          postsPublished: deliveredCount || 0,
+          activeCampaigns: campaignCount || 0,
+          adSpend: 0,
+          leadsGenerated: 0,
         },
       });
     } catch (err) {
       console.error('Failed to fetch client data:', err);
+      // Show error state, no mock fallback
+      setClientData({
+        businessName: user?.display_name || 'Your Business',
+        packageName: '',
+        renewalDate: '',
+        daysLeft: 0,
+        walletBalance: 0,
+        usage: [],
+        stats: { postsPublished: 0, activeCampaigns: 0, adSpend: 0, leadsGenerated: 0 },
+      });
     } finally {
       setLoading(false);
     }
@@ -199,9 +265,9 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
 
   const data = clientData;
   const overallUsage = data.usage.length > 0
-    ? Math.round(data.usage.reduce((sum, u) => sum + (u.used / u.total) * 100, 0) / data.usage.length)
+    ? Math.round(data.usage.reduce((sum, u) => sum + (u.total > 0 ? (u.used / u.total) * 100 : 0), 0) / data.usage.length)
     : 0;
-  const isLowUsage = data.usage.some((u) => (u.used / u.total) * 100 > 80);
+  const isLowUsage = data.usage.some((u) => u.total > 0 && (u.used / u.total) * 100 > 80);
 
   return (
     <div className="h-full overflow-y-auto scrollbar-hide">
@@ -266,13 +332,24 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
                   <Package className="w-5 h-5 text-titan-cyan" />
                 </div>
                 <div>
-                  <p className="font-display font-bold text-sm text-white">{data.packageName}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <Clock className="w-3 h-3 text-white/30" />
-                    <p className="font-mono text-[10px] text-white/40">
-                      Renews in <span className="text-titan-cyan">{data.daysLeft} days</span>
-                    </p>
-                  </div>
+                  {data.packageName ? (
+                    <>
+                      <p className="font-display font-bold text-sm text-white">{data.packageName}</p>
+                      {data.daysLeft > 0 && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Clock className="w-3 h-3 text-white/30" />
+                          <p className="font-mono text-[10px] text-white/40">
+                            Renews in <span className="text-titan-cyan">{data.daysLeft} days</span>
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-display font-bold text-sm text-white/40">No Package Assigned</p>
+                      <p className="font-mono text-[10px] text-white/25 mt-0.5">Contact your agency to get started</p>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="text-right">
@@ -296,68 +373,79 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
               <BarChart3 className="w-4 h-4 text-titan-cyan" />
               Package Usage
             </h2>
-            <span className="font-mono text-[10px] text-white/30">{overallUsage}% overall</span>
+            <span className="font-mono text-[10px] text-white/30">{data.usage.length > 0 ? `${overallUsage}% overall` : 'No data'}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {data.usage.map((item, i) => {
-              const percent = Math.round((item.used / item.total) * 100);
-              const isHigh = percent > 80;
-              const color = isHigh ? '#FF006E' : percent > 50 ? '#FFB800' : '#00D9FF';
-              const Icon = iconMap[item.type] || Package;
+          {data.usage.length > 0 ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                {data.usage.map((item, i) => {
+                  const percent = item.total > 0 ? Math.round((item.used / item.total) * 100) : 0;
+                  const isHigh = percent > 80;
+                  const color = isHigh ? '#FF006E' : percent > 50 ? '#FFB800' : '#00D9FF';
+                  const Icon = iconMap[item.type] || Package;
 
-              return (
-                <motion.div
-                  key={item.type}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.3 + i * 0.08 }}
-                  className="glass-card p-3 relative overflow-hidden"
+                  return (
+                    <motion.div
+                      key={item.type}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.3 + i * 0.08 }}
+                      className="glass-card p-3 relative overflow-hidden"
+                    >
+                      {isHigh && (
+                        <div className="absolute inset-0 bg-titan-magenta/[0.04] animate-pulse" />
+                      )}
+                      <div className="relative flex items-center gap-3">
+                        <div className="relative">
+                          <CircularProgress percent={percent} color={color} size={48} strokeWidth={3.5} />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Icon className="w-4 h-4" style={{ color }} />
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-[10px] text-white/50 truncate">{item.label}</p>
+                          <p className="font-display font-bold text-sm text-white">
+                            {item.used}<span className="text-white/30 font-normal">/{item.total}</span>
+                          </p>
+                          <div className="w-full h-1 rounded-full bg-white/[0.06] mt-1.5 overflow-hidden">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${percent}%` }}
+                              transition={{ duration: 0.8, delay: 0.4 + i * 0.1 }}
+                              className="h-full rounded-full"
+                              style={{ background: color }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+
+              {isLowUsage && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.7 }}
+                  onClick={() => onQuickAction?.('upgrade_package')}
+                  className="w-full mt-3 py-2.5 rounded-xl bg-titan-magenta/10 border border-titan-magenta/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
                 >
-                  {isHigh && (
-                    <div className="absolute inset-0 bg-titan-magenta/[0.04] animate-pulse" />
-                  )}
-                  <div className="relative flex items-center gap-3">
-                    <div className="relative">
-                      <CircularProgress percent={percent} color={color} size={48} strokeWidth={3.5} />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Icon className="w-4 h-4" style={{ color }} />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-mono text-[10px] text-white/50 truncate">{item.label}</p>
-                      <p className="font-display font-bold text-sm text-white">
-                        {item.used}<span className="text-white/30 font-normal">/{item.total}</span>
-                      </p>
-                      <div className="w-full h-1 rounded-full bg-white/[0.06] mt-1.5 overflow-hidden">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${percent}%` }}
-                          transition={{ duration: 0.8, delay: 0.4 + i * 0.1 }}
-                          className="h-full rounded-full"
-                          style={{ background: color }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-
-          {isLowUsage && (
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.7 }}
-              className="w-full mt-3 py-2.5 rounded-xl bg-titan-magenta/10 border border-titan-magenta/25 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
-            >
-              <Zap className="w-4 h-4 text-titan-magenta" />
-              <span className="font-display font-bold text-xs text-titan-magenta">
-                Running low — Upgrade Package
-              </span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-titan-magenta" />
-            </motion.button>
+                  <Zap className="w-4 h-4 text-titan-magenta" />
+                  <span className="font-display font-bold text-xs text-titan-magenta">
+                    Running low — Upgrade Package
+                  </span>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-titan-magenta" />
+                </motion.button>
+              )}
+            </>
+          ) : (
+            <div className="glass-card p-6 flex flex-col items-center justify-center text-center">
+              <Package className="w-8 h-8 text-white/10 mb-2" />
+              <p className="font-mono text-xs text-white/30">No package usage data available</p>
+              <p className="font-mono text-[10px] text-white/20 mt-1">Usage will appear once a package is assigned</p>
+            </div>
           )}
         </motion.div>
 
@@ -374,10 +462,10 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
 
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'Posts Published', value: data.stats.postsPublished.toString(), icon: Image, color: '#00D9FF', change: '+12%' },
-              { label: 'Active Campaigns', value: data.stats.activeCampaigns.toString(), icon: Rocket, color: '#7B61FF', change: '+2 new' },
-              { label: 'Ad Spend', value: `৳${(data.stats.adSpend / 1000).toFixed(0)}K`, icon: BarChart3, color: '#FF006E', change: '-5%' },
-              { label: 'Leads Generated', value: data.stats.leadsGenerated.toString(), icon: TrendingUp, color: '#39FF14', change: '+18%' },
+              { label: 'Posts Published', value: data.stats.postsPublished.toString(), icon: Image, color: '#00D9FF' },
+              { label: 'Active Campaigns', value: data.stats.activeCampaigns.toString(), icon: Rocket, color: '#7B61FF' },
+              { label: 'Ad Spend', value: data.stats.adSpend > 0 ? `৳${(data.stats.adSpend / 1000).toFixed(0)}K` : '৳0', icon: BarChart3, color: '#FF006E' },
+              { label: 'Leads Generated', value: data.stats.leadsGenerated.toString(), icon: TrendingUp, color: '#39FF14' },
             ].map((stat, i) => {
               const Icon = stat.icon;
               return (
@@ -395,15 +483,6 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
                     >
                       <Icon className="w-3.5 h-3.5" style={{ color: stat.color }} />
                     </div>
-                    <span
-                      className="font-mono text-[9px] px-1.5 py-0.5 rounded-md"
-                      style={{
-                        background: stat.change.startsWith('+') ? 'rgba(57,255,20,0.1)' : 'rgba(255,0,110,0.1)',
-                        color: stat.change.startsWith('+') ? '#39FF14' : '#FF006E',
-                      }}
-                    >
-                      {stat.change}
-                    </span>
                   </div>
                   <p className="font-display font-extrabold text-lg text-white">{stat.value}</p>
                   <p className="font-mono text-[10px] text-white/35 mt-0.5">{stat.label}</p>
@@ -422,14 +501,16 @@ export default function ClientHome({ onRefresh }: { onRefresh: () => void }) {
           <h2 className="font-display font-bold text-sm text-white/80 mb-3">Quick Actions</h2>
           <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
             {[
-              { label: 'Request Design', icon: Image, color: '#00D9FF' },
-              { label: 'New Campaign', icon: Rocket, color: '#7B61FF' },
-              { label: 'View Invoices', icon: Calendar, color: '#FFB800' },
+              { label: 'Request Design', icon: Image, color: '#00D9FF', action: 'request_design' },
+              { label: 'New Campaign', icon: Rocket, color: '#7B61FF', action: 'new_campaign' },
+              { label: 'View Invoices', icon: Calendar, color: '#FFB800', action: 'view_invoices' },
+              { label: 'Analytics', icon: BarChart3, color: '#39FF14', action: 'view_analytics' },
             ].map((action) => {
               const Icon = action.icon;
               return (
                 <button
                   key={action.label}
+                  onClick={() => onQuickAction?.(action.action)}
                   className="flex-none flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all active:scale-[0.95]"
                   style={{
                     background: `${action.color}08`,

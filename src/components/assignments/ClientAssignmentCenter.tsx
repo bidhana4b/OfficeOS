@@ -11,6 +11,7 @@ import {
 } from '@/hooks/useAssignments';
 import { useClients } from '@/hooks/useClients';
 import { subscribeToTable } from '@/lib/data-service';
+import { DataSourceIndicator } from '@/components/ui/data-source-indicator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -246,6 +247,7 @@ export default function ClientAssignmentCenter() {
           <div className="flex items-center gap-2 mb-3">
             <Users className="w-4 h-4 text-titan-cyan" />
             <span className="font-display font-bold text-sm text-white">Assignment Center</span>
+            <DataSourceIndicator isRealData={clientsQuery.data.length > 0} size="xs" />
           </div>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
@@ -729,6 +731,22 @@ export default function ClientAssignmentCenter() {
                 This will automatically add {confirmDialog.member.name} to the client's messaging workspace
                 and send them a notification.
               </div>
+
+              {/* Workload Warning */}
+              {confirmDialog.member.current_load !== undefined && confirmDialog.member.current_load >= 75 && (
+                <div className="text-[10px] font-mono p-2 rounded bg-yellow-500/5 border border-yellow-500/15 flex items-start gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-yellow-400 font-bold">High Workload Warning</p>
+                    <p className="text-yellow-400/70 mt-0.5">
+                      {confirmDialog.member.name} is at {confirmDialog.member.current_load}% capacity
+                      {confirmDialog.member.active_deliverables && (
+                        <> with {confirmDialog.member.active_deliverables} active tasks</>
+                      )}. Consider assigning to a less busy team member.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
